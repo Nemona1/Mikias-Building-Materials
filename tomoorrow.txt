@@ -1,0 +1,5 @@
+continue from authentication RBAC for Mikias in detail adn secured way precisely and develop the product category uploading.
+Customers can register by themselves but admin, manager and staff can only be registered by superadmin and then verify their email registered with
+and then continu to work with 
+But customer also should have to verify their emial for registration purpose in order to place order or quote 
+but for product visiting and also location and any detail of the product the compnay nwith necessary viewing the availabale products and how place order and any necesary thing required.....
