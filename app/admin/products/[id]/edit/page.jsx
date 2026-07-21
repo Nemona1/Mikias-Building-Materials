@@ -1,7 +1,7 @@
-// app/admin/products/[id]/edit/page.jsx
+// app/admin/products/[id]/edit/page.jsx - With image upload
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import { Card } from '@/components/ui/Card';
@@ -14,7 +14,9 @@ import {
   Plus, 
   Trash2,
   AlertCircle,
-  Loader2
+  Loader2,
+  Upload,
+  Image as ImageIcon
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -22,9 +24,11 @@ export default function EditProductPage() {
   const router = useRouter();
   const params = useParams();
   const productId = params?.id;
+  const fileInputRef = useRef(null);
   
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     slug: '',
@@ -45,7 +49,6 @@ export default function EditProductPage() {
   });
   const [errors, setErrors] = useState({});
   const [imageUrls, setImageUrls] = useState([]);
-  const [newImageUrl, setNewImageUrl] = useState('');
 
   useEffect(() => {
     if (productId) {
@@ -124,30 +127,95 @@ export default function EditProductPage() {
     }
   };
 
-  const handleImageAdd = () => {
-    const url = newImageUrl.trim();
-    if (url) {
-      setImageUrls(prev => [...prev, url]);
-      setFormData(prev => ({
-        ...prev,
-        images: [...(prev.images || []), url]
-      }));
-      setNewImageUrl('');
+  const handleFileUpload = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    setUploading(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      
+      for (const file of files) {
+        if (file.size > 5 * 1024 * 1024) {
+          toast.error(`${file.name} exceeds 5MB limit`);
+          continue;
+        }
+
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+        if (!allowedTypes.includes(file.type)) {
+          toast.error(`${file.name} is not a supported image format`);
+          continue;
+        }
+
+        const formData = new FormData();
+        formData.append('image', file);
+
+        const res = await fetch('/api/admin/products/upload', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          body: formData
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setImageUrls(prev => [...prev, data.url]);
+          setFormData(prev => ({
+            ...prev,
+            images: [...(prev.images || []), data.url]
+          }));
+          toast.success(`Uploaded ${file.name}`);
+        } else {
+          const error = await res.json().catch(() => ({}));
+          toast.error(error.error || `Failed to upload ${file.name}`);
+        }
+      }
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast.error('Failed to upload images');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
-  const handleImageRemove = (index) => {
-    setImageUrls(prev => prev.filter((_, i) => i !== index));
-    setFormData(prev => ({
-      ...prev,
-      images: prev.images.filter((_, i) => i !== index)
-    }));
+  const handleImageRemove = async (index) => {
+    const urlToRemove = imageUrls[index];
+    
+    try {
+      const token = localStorage.getItem('accessToken');
+      
+      const res = await fetch(`/api/admin/products/upload?url=${encodeURIComponent(urlToRemove)}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (res.ok) {
+        setImageUrls(prev => prev.filter((_, i) => i !== index));
+        setFormData(prev => ({
+          ...prev,
+          images: prev.images.filter((_, i) => i !== index)
+        }));
+        toast.success('Image removed');
+      } else {
+        toast.error('Failed to remove image');
+      }
+    } catch (error) {
+      console.error('Remove image error:', error);
+      toast.error('Failed to remove image');
+    }
   };
 
   const validateForm = () => {
     const newErrors = {};
     if (!formData.name.trim()) newErrors.name = 'Product name is required';
     if (!formData.category.trim()) newErrors.category = 'Category is required';
+    if (imageUrls.length === 0) newErrors.images = 'At least one image is required';
     if (formData.price && isNaN(parseFloat(formData.price))) newErrors.price = 'Price must be a valid number';
     if (formData.stockQuantity && isNaN(parseFloat(formData.stockQuantity))) newErrors.stockQuantity = 'Stock quantity must be a valid number';
     
@@ -169,7 +237,8 @@ export default function EditProductPage() {
         ...formData,
         price: formData.price ? parseFloat(formData.price) : null,
         stockQuantity: formData.stockQuantity ? parseInt(formData.stockQuantity) : 0,
-        sortOrder: parseInt(formData.sortOrder) || 0
+        sortOrder: parseInt(formData.sortOrder) || 0,
+        images: imageUrls
       };
 
       const res = await fetch(`/api/admin/products/${productId}`, {
@@ -235,7 +304,7 @@ export default function EditProductPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Basic Information */}
+        {/* Basic Information - Same as new product */}
         <Card className="p-6">
           <h2 className="text-lg font-semibold text-foreground mb-4">Basic Information</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -249,7 +318,6 @@ export default function EditProductPage() {
                 value={formData.name}
                 onChange={(e) => {
                   handleChange(e);
-                  // Auto-generate slug if not manually edited
                   if (!formData.slug || formData.slug === generateSlug(formData.name)) {
                     setFormData(prev => ({
                       ...prev,
@@ -439,28 +507,43 @@ export default function EditProductPage() {
           </div>
         </Card>
 
-        {/* Images */}
+        {/* Images - With File Upload */}
         <Card className="p-6">
           <h2 className="text-lg font-semibold text-foreground mb-4">Product Images</h2>
           <div className="space-y-4">
-            <div className="flex gap-2">
-              <input
-                type="url"
-                value={newImageUrl}
-                onChange={(e) => setNewImageUrl(e.target.value)}
-                placeholder="Enter image URL..."
-                className="input-field flex-1"
-              />
-              <Button
-                type="button"
-                onClick={handleImageAdd}
-                className="gap-2"
-              >
-                <Plus className="h-4 w-4" />
-                Add
-              </Button>
+            <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-border rounded-lg hover:border-primary/30 transition-colors">
+              <Upload className="h-12 w-12 text-muted mb-4" />
+              <p className="text-sm text-muted mb-2">Upload product images</p>
+              <p className="text-xs text-muted mb-4">Supports JPG, PNG, WebP, GIF (Max 5MB each)</p>
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="gap-2"
+                >
+                  {uploading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <ImageIcon className="h-4 w-4" />
+                      Add Images
+                    </>
+                  )}
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+              </div>
             </div>
-            <p className="text-xs text-muted">Enter image URLs (supports JPG, PNG, WebP)</p>
 
             {imageUrls.length > 0 && (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
@@ -479,14 +562,20 @@ export default function EditProductPage() {
                     <button
                       type="button"
                       onClick={() => handleImageRemove(index)}
-                      className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100"
+                      className="absolute top-1 right-1 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100"
                     >
                       <Trash2 className="h-3 w-3" />
                     </button>
+                    {index === 0 && (
+                      <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-primary/80 text-white text-[10px] rounded">
+                        Primary
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
             )}
+            {errors.images && <p className="text-xs text-error mt-1">{errors.images}</p>}
           </div>
         </Card>
 
@@ -562,7 +651,7 @@ export default function EditProductPage() {
           <Link href="/admin/products">
             <Button variant="outline" type="button">Cancel</Button>
           </Link>
-          <Button type="submit" disabled={saving} className="gap-2">
+          <Button type="submit" disabled={saving || uploading} className="gap-2">
             <Save className="h-4 w-4" />
             {saving ? 'Saving...' : 'Save Changes'}
           </Button>

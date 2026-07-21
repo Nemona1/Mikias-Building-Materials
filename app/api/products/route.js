@@ -1,4 +1,4 @@
-// app/api/products/route.js - Optimized with caching
+// app/api/products/route.js - Keep images as relative paths for public access
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
@@ -33,6 +33,20 @@ function getCachedProducts(key) {
   return null;
 }
 
+/**
+ * Process images - keep them as stored in database
+ * The images are stored as /uploads/products/filename.ext
+ * They will be served from the public folder
+ */
+function processImages(images) {
+  if (!images || !Array.isArray(images) || images.length === 0) {
+    return [];
+  }
+  
+  // Filter out empty values and return the array as-is
+  return images.filter(img => img && img.trim() !== '');
+}
+
 export async function GET(request) {
   try {
     const url = new URL(request.url);
@@ -45,11 +59,11 @@ export async function GET(request) {
         headers: {
           'X-Cache': 'HIT',
           'Cache-Control': 'public, max-age=60, stale-while-revalidate=300',
-          'ETag': cachedResponse.etag
         }
       });
     }
 
+    // Get query parameters
     const page = parseInt(url.searchParams.get('page')) || 1;
     const limit = Math.min(parseInt(url.searchParams.get('limit')) || 12, 50);
     const category = url.searchParams.get('category') || '';
@@ -78,8 +92,8 @@ export async function GET(request) {
       ];
     }
 
-    // Use transaction for parallel queries
-    const [products, total, featuredProducts] = await prisma.$transaction([
+    // Fetch products
+    const [products, total] = await Promise.all([
       prisma.product.findMany({
         where,
         select: {
@@ -106,42 +120,19 @@ export async function GET(request) {
         take: limit,
         skip: skip
       }),
-      prisma.product.count({ where }),
-      // Get featured products for the first page
-      page === 1 ? prisma.product.findMany({
-        where: {
-          ...where,
-          isFeatured: true
-        },
-        select: {
-          id: true,
-          name: true,
-          slug: true,
-          shortDescription: true,
-          price: true,
-          unit: true,
-          images: true,
-          category: true
-        },
-        take: 4,
-        orderBy: { sortOrder: 'asc' }
-      }) : Promise.resolve([])
+      prisma.product.count({ where })
     ]);
 
-    // Process products
+    // Process products - keep images as stored in database
     const processedProducts = products.map(product => ({
       ...product,
-      images: product.images || [],
+      images: processImages(product.images),
       price: product.price ? parseFloat(product.price) : null
     }));
 
+    // Build response
     const response = {
       products: processedProducts,
-      featuredProducts: featuredProducts.map(p => ({
-        ...p,
-        price: p.price ? parseFloat(p.price) : null,
-        images: p.images || []
-      })),
       pagination: {
         page,
         limit,
@@ -152,19 +143,13 @@ export async function GET(request) {
       }
     };
 
-    // Generate ETag
-    const etag = `"${Buffer.from(JSON.stringify(response)).toString('base64').substring(0, 32)}"`;
-    response.etag = etag;
-
     // Cache the response
     cacheProducts(cacheKey, response);
 
     return NextResponse.json(response, {
       headers: {
         'X-Cache': 'MISS',
-        'Cache-Control': 'public, max-age=60, stale-while-revalidate=300',
-        'ETag': etag,
-        'Vary': 'Accept-Encoding'
+        'Cache-Control': 'public, max-age=60, stale-while-revalidate=300'
       }
     });
 

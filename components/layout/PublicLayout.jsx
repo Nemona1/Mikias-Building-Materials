@@ -1,7 +1,7 @@
 // components/layout/PublicLayout.jsx - Optimized with caching
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Building2, Menu, X, Home } from 'lucide-react';

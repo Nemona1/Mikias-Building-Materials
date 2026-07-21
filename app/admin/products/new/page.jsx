@@ -1,7 +1,7 @@
-// app/admin/products/new/page.jsx
+// app/admin/products/new/page.jsx - With image upload
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Card } from '@/components/ui/Card';
@@ -15,13 +15,17 @@ import {
   Trash2,
   Image as ImageIcon,
   Upload,
-  AlertCircle
+  AlertCircle,
+  Loader2,
+  Eye
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function NewProductPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
   const [formData, setFormData] = useState({
     name: '',
     slug: '',
@@ -49,7 +53,6 @@ export default function NewProductPage() {
       ...prev,
       [name]: type === 'checkbox' ? checked : value
     }));
-    // Clear error for this field
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
     }
@@ -66,30 +69,98 @@ export default function NewProductPage() {
     }
   };
 
-  const handleImageAdd = (e) => {
-    const url = e.target.value.trim();
-    if (url) {
-      setImageUrls(prev => [...prev, url]);
-      setFormData(prev => ({
-        ...prev,
-        images: [...(prev.images || []), url]
-      }));
-      e.target.value = '';
+  // Handle file upload
+  const handleFileUpload = async (e) => {
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    setUploading(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      
+      for (const file of files) {
+        // Validate file
+        if (file.size > 5 * 1024 * 1024) {
+          toast.error(`${file.name} exceeds 5MB limit`);
+          continue;
+        }
+
+        const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+        if (!allowedTypes.includes(file.type)) {
+          toast.error(`${file.name} is not a supported image format`);
+          continue;
+        }
+
+        const formData = new FormData();
+        formData.append('image', file);
+
+        const res = await fetch('/api/admin/products/upload', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`
+          },
+          body: formData
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          setImageUrls(prev => [...prev, data.url]);
+          setFormData(prev => ({
+            ...prev,
+            images: [...(prev.images || []), data.url]
+          }));
+          toast.success(`Uploaded ${file.name}`);
+        } else {
+          const error = await res.json().catch(() => ({}));
+          toast.error(error.error || `Failed to upload ${file.name}`);
+        }
+      }
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast.error('Failed to upload images');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
-  const handleImageRemove = (index) => {
-    setImageUrls(prev => prev.filter((_, i) => i !== index));
-    setFormData(prev => ({
-      ...prev,
-      images: prev.images.filter((_, i) => i !== index)
-    }));
+  const handleImageRemove = async (index) => {
+    const urlToRemove = imageUrls[index];
+    
+    try {
+      const token = localStorage.getItem('accessToken');
+      
+      // Delete from server
+      const res = await fetch(`/api/admin/products/upload?url=${encodeURIComponent(urlToRemove)}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (res.ok) {
+        setImageUrls(prev => prev.filter((_, i) => i !== index));
+        setFormData(prev => ({
+          ...prev,
+          images: prev.images.filter((_, i) => i !== index)
+        }));
+        toast.success('Image removed');
+      } else {
+        toast.error('Failed to remove image');
+      }
+    } catch (error) {
+      console.error('Remove image error:', error);
+      toast.error('Failed to remove image');
+    }
   };
 
   const validateForm = () => {
     const newErrors = {};
     if (!formData.name.trim()) newErrors.name = 'Product name is required';
     if (!formData.category.trim()) newErrors.category = 'Category is required';
+    if (imageUrls.length === 0) newErrors.images = 'At least one image is required';
     if (formData.price && isNaN(parseFloat(formData.price))) newErrors.price = 'Price must be a valid number';
     if (formData.stockQuantity && isNaN(parseFloat(formData.stockQuantity))) newErrors.stockQuantity = 'Stock quantity must be a valid number';
     
@@ -111,7 +182,8 @@ export default function NewProductPage() {
         ...formData,
         price: formData.price ? parseFloat(formData.price) : null,
         stockQuantity: formData.stockQuantity ? parseInt(formData.stockQuantity) : 0,
-        sortOrder: parseInt(formData.sortOrder) || 0
+        sortOrder: parseInt(formData.sortOrder) || 0,
+        images: imageUrls
       };
 
       const res = await fetch('/api/admin/products', {
@@ -180,7 +252,6 @@ export default function NewProductPage() {
                 value={formData.name}
                 onChange={(e) => {
                   handleChange(e);
-                  // Auto-generate slug
                   if (!formData.slug || formData.slug === generateSlug(formData.name)) {
                     setFormData(prev => ({
                       ...prev,
@@ -370,31 +441,46 @@ export default function NewProductPage() {
           </div>
         </Card>
 
-        {/* Images */}
+        {/* Images - With File Upload */}
         <Card className="p-6">
           <h2 className="text-lg font-semibold text-foreground mb-4">Product Images</h2>
           <div className="space-y-4">
-            <div className="flex gap-2">
-              <input
-                type="url"
-                placeholder="Enter image URL..."
-                className="input-field flex-1"
-                id="imageUrlInput"
-              />
-              <Button
-                type="button"
-                onClick={() => {
-                  const input = document.getElementById('imageUrlInput');
-                  handleImageAdd({ target: { value: input.value } });
-                }}
-                className="gap-2"
-              >
-                <Plus className="h-4 w-4" />
-                Add
-              </Button>
+            {/* Upload Area */}
+            <div className="flex flex-col items-center justify-center p-8 border-2 border-dashed border-border rounded-lg hover:border-primary/30 transition-colors">
+              <Upload className="h-12 w-12 text-muted mb-4" />
+              <p className="text-sm text-muted mb-2">Upload product images</p>
+              <p className="text-xs text-muted mb-4">Supports JPG, PNG, WebP, GIF (Max 5MB each)</p>
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="gap-2"
+                >
+                  {uploading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Uploading...
+                    </>
+                  ) : (
+                    <>
+                      <ImageIcon className="h-4 w-4" />
+                      Select Images
+                    </>
+                  )}
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+              </div>
             </div>
-            <p className="text-xs text-muted">Enter image URLs (supports JPG, PNG, WebP)</p>
 
+            {/* Image Preview Grid */}
             {imageUrls.length > 0 && (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                 {imageUrls.map((url, index) => (
@@ -412,14 +498,20 @@ export default function NewProductPage() {
                     <button
                       type="button"
                       onClick={() => handleImageRemove(index)}
-                      className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100"
+                      className="absolute top-1 right-1 p-1.5 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors opacity-0 group-hover:opacity-100"
                     >
                       <Trash2 className="h-3 w-3" />
                     </button>
+                    {index === 0 && (
+                      <div className="absolute bottom-1 left-1 px-1.5 py-0.5 bg-primary/80 text-white text-[10px] rounded">
+                        Primary
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
             )}
+            {errors.images && <p className="text-xs text-error mt-1">{errors.images}</p>}
           </div>
         </Card>
 
@@ -493,9 +585,9 @@ export default function NewProductPage() {
         {/* Actions */}
         <div className="flex items-center justify-end gap-3 pt-6 border-t border-border">
           <Link href="/admin/products">
-            <Button variant="outline">Cancel</Button>
+            <Button variant="outline" type="button">Cancel</Button>
           </Link>
-          <Button type="submit" disabled={loading} className="gap-2">
+          <Button type="submit" disabled={loading || uploading} className="gap-2">
             <Save className="h-4 w-4" />
             {loading ? 'Creating...' : 'Create Product'}
           </Button>

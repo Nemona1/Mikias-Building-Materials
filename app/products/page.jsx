@@ -1,4 +1,4 @@
-// app/products/page.jsx - Fixed reset functionality
+// app/products/page.jsx - Fixed with proper image handling using relative paths
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
@@ -16,12 +16,54 @@ import {
   ShoppingCart,
   Star,
   Loader2,
-  X
+  X,
+  Image as ImageIcon
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import PublicLayout from '@/components/layout/PublicLayout';
 import ProductDetailModal from '@/components/products/ProductDetailModal';
 import QuoteRequestModal from '@/components/products/QuoteRequestModal';
+
+// Helper function to get the primary image (first image)
+const getPrimaryImage = (images) => {
+  if (!images || !Array.isArray(images) || images.length === 0) {
+    return null;
+  }
+  return images[0];
+};
+
+// Product Image Component
+const ProductImage = ({ images, name, className = '' }) => {
+  const imageUrl = getPrimaryImage(images);
+  const [imgError, setImgError] = useState(false);
+
+  // Log the image URL for debugging
+  console.log('[ProductImage] URL:', imageUrl, 'for product:', name);
+
+  if (!imageUrl || imgError) {
+    return (
+      <div className={`h-full w-full flex items-center justify-center bg-muted/10 ${className}`}>
+        <div className="text-center">
+          <ImageIcon className="h-12 w-12 text-muted/40 mx-auto" />
+          <p className="text-xs text-muted mt-2">No Image</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={imageUrl}
+      alt={name || 'Product image'}
+      className={`h-full w-full object-cover ${className}`}
+      onError={(e) => {
+        console.error('[Image Error] Failed to load:', imageUrl);
+        setImgError(true);
+      }}
+      loading="lazy"
+    />
+  );
+};
 
 export default function ProductsPage() {
   const router = useRouter();
@@ -47,7 +89,6 @@ export default function ProductsPage() {
   const fetchProducts = useCallback(async (resetPage = false) => {
     setLoading(true);
     try {
-      // If resetPage is true, reset to page 1
       const currentPage = resetPage ? 1 : pagination.page;
       
       const queryParams = new URLSearchParams({
@@ -61,10 +102,18 @@ export default function ProductsPage() {
       
       if (res.ok) {
         const data = await res.json();
+        console.log('[ProductsPage] Raw product data:', data.products);
+        
+        // Log image data for debugging
+        if (data.products && data.products.length > 0) {
+          data.products.forEach(p => {
+            console.log(`[ProductsPage] ${p.name} images:`, p.images);
+          });
+        }
+        
         setProducts(data.products || []);
         setPagination(data.pagination || { page: currentPage, limit: 12, total: 0, totalPages: 0 });
         
-        // Extract unique categories from products
         const uniqueCategories = [...new Set((data.products || []).map(p => p.category))].filter(Boolean);
         setCategories(uniqueCategories);
       } else {
@@ -93,13 +142,10 @@ export default function ProductsPage() {
     }
   }, [pagination.page]);
 
-  // Refetch when category or search changes (but not on initial load)
+  // Refetch when category or search changes
   useEffect(() => {
     if (!isInitialLoad) {
-      // Reset to page 1 when filters change
       setPagination(prev => ({ ...prev, page: 1 }));
-      // We need to call fetchProducts with resetPage=true after state update
-      // Using a setTimeout to ensure state is updated
       const timer = setTimeout(() => {
         fetchProducts(true);
       }, 100);
@@ -109,20 +155,16 @@ export default function ProductsPage() {
 
   const handleSearch = (e) => {
     e.preventDefault();
-    // searchTerm is already updated via onChange
-    // The useEffect will handle the fetch
   };
 
   const handleCategoryChange = (category) => {
     setSelectedCategory(category);
-    // The useEffect will handle the fetch with reset
   };
 
   const handleClearFilters = () => {
     setSelectedCategory('');
     setSearchTerm('');
     setPagination(prev => ({ ...prev, page: 1 }));
-    // Use a timeout to ensure state updates before fetching
     setTimeout(() => {
       fetchProducts(true);
     }, 50);
@@ -281,16 +323,8 @@ export default function ProductsPage() {
               return (
                 <Card key={product.id} className="overflow-hidden hover:shadow-lg transition-all duration-200 group">
                   <div className="relative">
-                    <div className="h-48 bg-muted/10 flex items-center justify-center">
-                      {product.images && product.images.length > 0 ? (
-                        <img 
-                          src={product.images[0]} 
-                          alt={product.name}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <Package className="h-12 w-12 text-muted/40" />
-                      )}
+                    <div className="h-48 bg-muted/10">
+                      <ProductImage images={product.images} name={product.name} />
                     </div>
                     {product.isFeatured && (
                       <div className="absolute top-2 left-2">
@@ -361,16 +395,8 @@ export default function ProductsPage() {
               return (
                 <Card key={product.id} className="p-4 hover:shadow-md transition-all">
                   <div className="flex items-center gap-4">
-                    <div className="h-20 w-20 rounded-lg bg-muted/10 flex items-center justify-center flex-shrink-0">
-                      {product.images && product.images.length > 0 ? (
-                        <img 
-                          src={product.images[0]} 
-                          alt={product.name}
-                          className="h-full w-full object-cover rounded-lg"
-                        />
-                      ) : (
-                        <Package className="h-6 w-6 text-muted/40" />
-                      )}
+                    <div className="h-20 w-20 rounded-lg bg-muted/10 flex-shrink-0 overflow-hidden">
+                      <ProductImage images={product.images} name={product.name} />
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">

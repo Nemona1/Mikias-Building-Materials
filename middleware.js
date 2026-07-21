@@ -7,7 +7,9 @@ const PUBLIC_ROUTES = new Set([
   '/reset-password', '/verify/success', '/verify/error',
   '/verify/already-verified', '/verify/email-changed',
   '/maintenance', '/products', '/about', '/contact',
-  '/quote-request', '/verify-2fa', '/profile'
+  '/quote-request', '/verify-2fa', '/profile',
+  // Add uploads path for images - FIX FOR IMAGES
+  '/uploads'
 ]);
 
 // Use Set and prefix matching for API routes
@@ -35,7 +37,15 @@ const apiCache = new Map();
 const API_CACHE_TTL = 60000; // 1 minute
 
 function isPublicRoute(pathname) {
+  // Check exact matches
   if (PUBLIC_ROUTES.has(pathname)) return true;
+  
+  // Check if path starts with any public route (for subpaths)
+  for (const route of PUBLIC_ROUTES) {
+    if (pathname.startsWith(route + '/')) return true;
+  }
+  
+  // Check API prefixes
   for (const prefix of PUBLIC_API_PREFIXES) {
     if (pathname === prefix || pathname.startsWith(prefix + '/')) {
       return true;
@@ -140,7 +150,7 @@ const ROLE_DASHBOARDS = {
 const STATIC_EXTENSIONS = new Set([
   '.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp',
   '.css', '.js', '.ico', '.json', '.woff', '.woff2',
-  '.ttf', '.eot', '.mp4', '.webm', '.mp3'
+  '.ttf', '.eot', '.mp4', '.webm', '.mp3', '.jfif' // Added .jfif
 ]);
 
 export async function middleware(request) {
@@ -152,13 +162,13 @@ export async function middleware(request) {
     return NextResponse.next();
   }
 
-  // Fast path: Skip files with extensions
+  // Fast path: Skip files with extensions (images, etc.)
   const ext = pathname.split('.').pop();
   if (ext && STATIC_EXTENSIONS.has('.' + ext)) {
     return NextResponse.next();
   }
   
-  // Fast path: Check public routes
+  // Fast path: Check public routes (including /uploads)
   if (isPublicRoute(pathname)) {
     return NextResponse.next();
   }
@@ -258,6 +268,6 @@ export async function middleware(request) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|public|sw.js|workbox-*.js|.*\\.(?:jpg|jpeg|png|gif|svg|webp|css|js|ico|json|woff|woff2|ttf|eot|mp4|webm|mp3)).*)',
+    '/((?!_next/static|_next/image|favicon.ico|public|sw.js|workbox-*.js|.*\\.(?:jpg|jpeg|png|gif|svg|webp|css|js|ico|json|woff|woff2|ttf|eot|mp4|webm|mp3|jfif)).*)',
   ],
 };
