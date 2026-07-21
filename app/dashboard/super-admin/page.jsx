@@ -1,7 +1,7 @@
-// app/dashboard/super-admin/page.jsx
+// app/dashboard/super-admin/page.jsx - Content beside refresh button
 'use client';
 
-import { useState, useEffect } from 'react';
+import React , { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { 
@@ -16,7 +16,57 @@ import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/hooks/useAuth';
 
-export default function SuperAdminDashboard() {
+// Memoized Stat Card Component
+const StatCard = React.memo(({ stat }) => {
+  const Icon = stat.icon;
+  return (
+    <Card className="p-4 hover:shadow-lg transition-all duration-200 group">
+      <div className="flex items-center justify-between mb-2">
+        <div className={`h-10 w-10 rounded-xl ${stat.bg} flex items-center justify-center group-hover:scale-110 transition-transform duration-200`}>
+          <Icon className={`h-5 w-5 ${stat.color}`} />
+        </div>
+        <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
+          stat.trend === 'up' ? 'bg-success/10 text-success' : 'bg-error/10 text-error'
+        }`}>
+          {stat.change}
+        </span>
+      </div>
+      <p className="text-2xl font-bold text-foreground">{stat.value}</p>
+      <p className="text-sm font-medium text-foreground mt-1">{stat.title}</p>
+      <p className="text-xs text-muted">{stat.description}</p>
+    </Card>
+  );
+});
+
+StatCard.displayName = 'StatCard';
+
+// Memoized Quick Action Component
+const QuickAction = React.memo(({ action, onClick }) => {
+  const Icon = action.icon;
+  return (
+    <button
+      onClick={() => onClick(action.path)}
+      className="w-full text-left p-3 rounded-lg bg-muted/5 hover:bg-primary/10 transition-all duration-200 group"
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className={`h-8 w-8 rounded-lg bg-muted/10 flex items-center justify-center group-hover:scale-110 transition-transform`}>
+            <Icon className={`h-4 w-4 ${action.color}`} />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-foreground">{action.title}</p>
+            <p className="text-xs text-muted">{action.description}</p>
+          </div>
+        </div>
+        <ChevronRight className="h-4 w-4 text-muted group-hover:text-primary transition-colors" />
+      </div>
+    </button>
+  );
+});
+
+QuickAction.displayName = 'QuickAction';
+
+export default function SuperAdminDashboard({ refreshKey = 0 }) {
   useInactivityTimer(1);
   const router = useRouter();
   const { user } = useAuth();
@@ -40,124 +90,11 @@ export default function SuperAdminDashboard() {
   const [recentActivity, setRecentActivity] = useState([]);
   const [securityLogs, setSecurityLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [period, setPeriod] = useState('week');
 
-  useEffect(() => {
-    fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 30000);
-    return () => clearInterval(interval);
-  }, [period]);
-
-  const fetchDashboardData = async () => {
-    try {
-      const token = localStorage.getItem('accessToken');
-      const [usersRes, rolesRes, permissionsRes, logsRes, backupRes] = await Promise.all([
-        fetch('/api/admin/users', { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch('/api/admin/roles', { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch('/api/admin/permissions', { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch('/api/admin/security-logs?limit=5', { headers: { 'Authorization': `Bearer ${token}` } }),
-        fetch('/api/admin/backup/list', { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => ({ ok: false }))
-      ]);
-
-      // FIX: Extract users array from response
-      let usersData = [];
-      if (usersRes.ok) {
-        const usersResponse = await usersRes.json();
-        // Check if response has a users property
-        if (usersResponse.users && Array.isArray(usersResponse.users)) {
-          usersData = usersResponse.users;
-        } else if (Array.isArray(usersResponse)) {
-          usersData = usersResponse;
-        } else {
-          console.warn('Unexpected users data format:', usersResponse);
-          usersData = [];
-        }
-      }
-
-      const roles = rolesRes.ok ? await rolesRes.json() : { roles: [] };
-      const permissions = permissionsRes.ok ? await permissionsRes.json() : [];
-      const logsData = logsRes.ok ? await logsRes.json() : {};
-      const backupData = backupRes.ok ? await backupRes.json() : { backups: [] };
-
-      // Calculate monthly new users
-      const currentMonth = new Date().getMonth();
-      const currentYear = new Date().getFullYear();
-      const newUsersThisMonth = usersData.filter(u => {
-        const userDate = new Date(u.createdAt);
-        return userDate.getMonth() === currentMonth && userDate.getFullYear() === currentYear;
-      }).length;
-
-      const backups = backupData.backups || [];
-      const lastBackup = backups.length > 0 ? backups[0]?.createdAt : null;
-
-      // Business stats
-      const mockProducts = 156;
-      const mockPendingQuotes = 23;
-      const mockTotalCustomers = usersData.filter(u => u.role?.name === 'customer').length || 0;
-      const activeAdmins = usersData.filter(u => u.role?.name === 'admin' || u.role?.name === 'super_admin').length || 0;
-      const totalStaff = usersData.filter(u => u.role?.name === 'staff' || u.role?.name === 'manager').length || 0;
-
-      setStats({
-        totalUsers: usersData.length || 0,
-        totalRoles: roles.roles?.length || 0,
-        totalPermissions: permissions.length || 0,
-        activeSessions: Math.floor(Math.random() * 30) + 10,
-        securityAlerts: usersData.filter(u => u.failedLoginAttempts > 2).length || 0,
-        verifiedUsers: usersData.filter(u => u.isVerified).length || 0,
-        newUsersThisMonth,
-        totalProducts: mockProducts,
-        pendingQuotes: mockPendingQuotes,
-        totalCustomers: mockTotalCustomers,
-        totalBackups: backups.length,
-        lastBackup,
-        systemUptime: '99.9%',
-        activeAdmins,
-        totalStaff
-      });
-
-      setRecentActivity(generateRecentActivity(usersData));
-      setSecurityLogs(logsData.data?.logs?.slice(0, 5) || []);
-      
-    } catch (error) {
-      console.error('Failed to fetch dashboard data:', error);
-      toast.error('Failed to load dashboard data');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const generateRecentActivity = (users) => {
-    const activities = [];
-    const userArray = Array.isArray(users) ? users : [];
-    userArray.slice(0, 5).forEach(user => {
-      activities.push({
-        id: user.id || Math.random().toString(),
-        type: 'user_registered',
-        user: `${user.firstName || 'Unknown'} ${user.lastName || ''}`,
-        action: `Registered as ${user.role?.name || 'customer'}`,
-        time: new Date(user.createdAt || Date.now()),
-        status: 'success'
-      });
-    });
-    return activities.sort((a, b) => b.time - a.time);
-  };
-
-  const getTimeAgo = (date) => {
-    if (!date) return 'Never';
-    const seconds = Math.floor((new Date() - new Date(date)) / 1000);
-    if (seconds < 60) return `${seconds}s ago`;
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) return `${minutes}m ago`;
-    const hours = Math.floor(minutes / 60);
-    if (hours < 24) return `${hours}h ago`;
-    const days = Math.floor(hours / 24);
-    if (days < 7) return `${days}d ago`;
-    const weeks = Math.floor(days / 7);
-    if (weeks < 4) return `${weeks}w ago`;
-    return `${Math.floor(days / 30)}mo ago`;
-  };
-
-  const statCards = [
+  // Memoized stat cards
+  const statCards = useMemo(() => [
     {
       title: 'Total Users',
       value: stats.totalUsers,
@@ -218,9 +155,10 @@ export default function SuperAdminDashboard() {
       bg: 'bg-purple-100 dark:bg-purple-500/10',
       description: 'System availability'
     }
-  ];
+  ], [stats]);
 
-  const superAdminQuickActions = [
+  // Memoized quick actions
+  const superAdminQuickActions = useMemo(() => [
     { title: 'User Management', description: 'Add, edit, or remove users', path: '/admin/users', icon: Users, color: 'text-primary' },
     { title: 'Role Management', description: 'Configure roles and permissions', path: '/admin/roles', icon: Shield, color: 'text-purple-600' },
     { title: 'Permission Manager', description: 'Grant direct permissions', path: '/admin/permissions', icon: Key, color: 'text-warning' },
@@ -229,7 +167,130 @@ export default function SuperAdminDashboard() {
     { title: 'Security Logs', description: 'View system activity logs', path: '/admin/security-logs', icon: Activity, color: 'text-error' },
     { title: 'System Backup', description: 'Manage system backups', path: '/admin/backup', icon: Database, color: 'text-primary' },
     { title: 'System Settings', description: 'Configure system settings', path: '/admin/settings', icon: Settings, color: 'text-purple-600' }
-  ];
+  ], []);
+
+  const fetchDashboardData = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      const [usersRes, rolesRes, permissionsRes, logsRes, backupRes] = await Promise.all([
+        fetch('/api/admin/users', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/admin/roles', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/admin/permissions', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/admin/security-logs?limit=5', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/admin/backup/list', { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => ({ ok: false }))
+      ]);
+
+      let usersData = [];
+      if (usersRes.ok) {
+        const usersResponse = await usersRes.json();
+        if (usersResponse.users && Array.isArray(usersResponse.users)) {
+          usersData = usersResponse.users;
+        } else if (Array.isArray(usersResponse)) {
+          usersData = usersResponse;
+        } else {
+          console.warn('Unexpected users data format:', usersResponse);
+          usersData = [];
+        }
+      }
+
+      const roles = rolesRes.ok ? await rolesRes.json() : { roles: [] };
+      const permissions = permissionsRes.ok ? await permissionsRes.json() : [];
+      const logsData = logsRes.ok ? await logsRes.json() : {};
+      const backupData = backupRes.ok ? await backupRes.json() : { backups: [] };
+
+      const currentMonth = new Date().getMonth();
+      const currentYear = new Date().getFullYear();
+      const newUsersThisMonth = usersData.filter(u => {
+        const userDate = new Date(u.createdAt);
+        return userDate.getMonth() === currentMonth && userDate.getFullYear() === currentYear;
+      }).length;
+
+      const backups = backupData.backups || [];
+      const lastBackup = backups.length > 0 ? backups[0]?.createdAt : null;
+
+      const mockProducts = 156;
+      const mockPendingQuotes = 23;
+      const mockTotalCustomers = usersData.filter(u => u.role?.name === 'customer').length || 0;
+      const activeAdmins = usersData.filter(u => u.role?.name === 'admin' || u.role?.name === 'super_admin').length || 0;
+      const totalStaff = usersData.filter(u => u.role?.name === 'staff' || u.role?.name === 'manager').length || 0;
+
+      setStats({
+        totalUsers: usersData.length || 0,
+        totalRoles: roles.roles?.length || 0,
+        totalPermissions: permissions.length || 0,
+        activeSessions: Math.floor(Math.random() * 30) + 10,
+        securityAlerts: usersData.filter(u => u.failedLoginAttempts > 2).length || 0,
+        verifiedUsers: usersData.filter(u => u.isVerified).length || 0,
+        newUsersThisMonth,
+        totalProducts: mockProducts,
+        pendingQuotes: mockPendingQuotes,
+        totalCustomers: mockTotalCustomers,
+        totalBackups: backups.length,
+        lastBackup,
+        systemUptime: '99.9%',
+        activeAdmins,
+        totalStaff
+      });
+
+      setRecentActivity(generateRecentActivity(usersData));
+      setSecurityLogs(logsData.data?.logs?.slice(0, 5) || []);
+      
+    } catch (error) {
+      console.error('Failed to fetch dashboard data:', error);
+      toast.error('Failed to load dashboard data');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  const generateRecentActivity = (users) => {
+    const activities = [];
+    const userArray = Array.isArray(users) ? users : [];
+    userArray.slice(0, 5).forEach(user => {
+      activities.push({
+        id: user.id || Math.random().toString(),
+        type: 'user_registered',
+        user: `${user.firstName || 'Unknown'} ${user.lastName || ''}`,
+        action: `Registered as ${user.role?.name || 'customer'}`,
+        time: new Date(user.createdAt || Date.now()),
+        status: 'success'
+      });
+    });
+    return activities.sort((a, b) => b.time - a.time);
+  };
+
+  const getTimeAgo = (date) => {
+    if (!date) return 'Never';
+    const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    const weeks = Math.floor(days / 7);
+    if (weeks < 4) return `${weeks}w ago`;
+    return `${Math.floor(days / 30)}mo ago`;
+  };
+
+  // Initial load and refresh on key change
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData, refreshKey]);
+
+  // Auto-refresh interval
+  useEffect(() => {
+    const interval = setInterval(fetchDashboardData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchDashboardData]);
+
+  // Navigation handler
+  const handleNavigation = useCallback((path) => {
+    router.push(path);
+  }, [router]);
 
   if (loading) {
     return (
@@ -244,8 +305,8 @@ export default function SuperAdminDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
+      {/* Header with Content and Refresh Button Beside Each Other */}
+      <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <div className="flex items-center gap-3">
             <Crown className="h-8 w-8 text-yellow-500" />
@@ -259,7 +320,9 @@ export default function SuperAdminDashboard() {
             </div>
           </div>
         </div>
-        <div className="flex gap-3">
+        
+        {/* Refresh and Period Controls - Beside the header */}
+        <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2 p-1 bg-muted/10 rounded-lg">
             <button
               onClick={() => setPeriod('week')}
@@ -280,42 +343,17 @@ export default function SuperAdminDashboard() {
               Year
             </button>
           </div>
-          <Button
-            variant="outline"
-            onClick={fetchDashboardData}
-            className="gap-2"
-          >
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </Button>
         </div>
       </div>
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        {statCards.map((stat, index) => {
-          const Icon = stat.icon;
-          return (
-            <Card key={index} className="p-4 hover:shadow-lg transition-all duration-200 group">
-              <div className="flex items-center justify-between mb-2">
-                <div className={`h-10 w-10 rounded-xl ${stat.bg} flex items-center justify-center group-hover:scale-110 transition-transform duration-200`}>
-                  <Icon className={`h-5 w-5 ${stat.color}`} />
-                </div>
-                <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
-                  stat.trend === 'up' ? 'bg-success/10 text-success' : 'bg-error/10 text-error'
-                }`}>
-                  {stat.change}
-                </span>
-              </div>
-              <p className="text-2xl font-bold text-foreground">{stat.value}</p>
-              <p className="text-sm font-medium text-foreground mt-1">{stat.title}</p>
-              <p className="text-xs text-muted">{stat.description}</p>
-            </Card>
-          );
-        })}
+        {statCards.map((stat, index) => (
+          <StatCard key={index} stat={stat} />
+        ))}
       </div>
 
-      {/* Main Content Grid */}
+      {/* Rest of the dashboard content... */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Quick Actions */}
         <Card className="lg:col-span-1 p-6">
@@ -324,29 +362,13 @@ export default function SuperAdminDashboard() {
             <Crown className="h-5 w-5 text-yellow-500" />
           </div>
           <div className="space-y-3">
-            {superAdminQuickActions.map((action, index) => {
-              const Icon = action.icon;
-              return (
-                <button
-                  key={index}
-                  onClick={() => router.push(action.path)}
-                  className="w-full text-left p-3 rounded-lg bg-muted/5 hover:bg-primary/10 transition-all duration-200 group"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`h-8 w-8 rounded-lg bg-muted/10 flex items-center justify-center group-hover:scale-110 transition-transform`}>
-                        <Icon className={`h-4 w-4 ${action.color}`} />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{action.title}</p>
-                        <p className="text-xs text-muted">{action.description}</p>
-                      </div>
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-muted group-hover:text-primary transition-colors" />
-                  </div>
-                </button>
-              );
-            })}
+            {superAdminQuickActions.map((action, index) => (
+              <QuickAction 
+                key={index} 
+                action={action} 
+                onClick={handleNavigation} 
+              />
+            ))}
           </div>
         </Card>
 
@@ -376,7 +398,7 @@ export default function SuperAdminDashboard() {
             )}
           </div>
           <button 
-            onClick={() => router.push('/admin/security-logs')}
+            onClick={() => handleNavigation('/admin/security-logs')}
             className="mt-4 w-full text-center text-sm text-primary hover:underline"
           >
             View all activity →
@@ -413,7 +435,7 @@ export default function SuperAdminDashboard() {
             )}
           </div>
           <button 
-            onClick={() => router.push('/admin/security-logs')}
+            onClick={() => handleNavigation('/admin/security-logs')}
             className="mt-4 w-full text-center text-sm text-primary hover:underline"
           >
             View all security events →

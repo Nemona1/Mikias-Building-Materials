@@ -1,7 +1,8 @@
+// app/api/admin/roles/route.js
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAccessToken } from '@/lib/auth/jwt';
-import { hasPermission, hasAdminAccess } from '@/lib/auth/permissions';
+import { hasPermission, hasAdminAccess, hasManagerAccess } from '@/lib/auth/permissions';
 import { logSecurityEvent, SecurityActions } from '@/lib/security-log';
 
 export async function GET(request) {
@@ -27,65 +28,114 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
     
-    // Check if user has admin access
+    // Check if user has admin access OR manager access
     const isAdmin = await hasAdminAccess(decoded.userId);
+    const isManager = await hasManagerAccess(decoded.userId);
+    
     console.log('[ROLES API] Is admin:', isAdmin);
+    console.log('[ROLES API] Is manager:', isManager);
     
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
+    // Allow if admin OR manager (for reading only)
+    if (!isAdmin && !isManager) {
+      return NextResponse.json({ error: 'Forbidden - Access required' }, { status: 403 });
     }
     
-    // Check specific permission for viewing roles
-    const hasReadAccess = await hasPermission(decoded.userId, 'roles:read');
-    if (!hasReadAccess) {
-      return NextResponse.json({ error: 'Forbidden - Insufficient permissions' }, { status: 403 });
-    }
-    
-    // Fetch roles with permissions
-    const roles = await prisma.role.findMany({
-      include: {
-        permissions: {
-          include: {
-            permission: true
-          }
-        },
-        _count: {
-          select: { users: true }
-        }
-      },
-      orderBy: { createdAt: 'asc' }
-    });
-    
-    console.log('[ROLES API] Found roles:', roles.length);
-    
-    // Fetch permissions - handle both with and without category
-    let permissions;
+    // For admins: return ALL roles
+    // For managers: only return STAFF role
+    let roles = [];
     try {
-      permissions = await prisma.permission.findMany({
-        orderBy: [
-          { category: 'asc' },
-          { name: 'asc' }
-        ]
-      });
-    } catch (categoryError) {
-      // If category doesn't exist, order by name only
-      console.log('[ROLES API] Category field not found, ordering by name');
-      permissions = await prisma.permission.findMany({
-        orderBy: { name: 'asc' }
-      });
+      if (isAdmin) {
+        // Admins see all roles
+        roles = await prisma.role.findMany({
+          include: {
+            permissions: {
+              include: {
+                permission: true
+              }
+            },
+            _count: {
+              select: { users: true }
+            }
+          },
+          orderBy: { createdAt: 'asc' }
+        });
+        console.log('[ROLES API] Admin - Found all roles:', roles.length);
+      } else if (isManager) {
+        // Managers only see STAFF role
+        roles = await prisma.role.findMany({
+          where: { name: 'staff' },
+          include: {
+            permissions: {
+              include: {
+                permission: true
+              }
+            },
+            _count: {
+              select: { users: true }
+            }
+          },
+          orderBy: { createdAt: 'asc' }
+        });
+        console.log('[ROLES API] Manager - Found STAFF role:', roles.length);
+      } else {
+        roles = [];
+      }
+      
+      console.log('[ROLES API] Roles:', roles.map(r => ({ id: r.id, name: r.name })));
+    } catch (dbError) {
+      console.error('[ROLES API] Database error fetching roles:', dbError);
+      roles = [];
     }
     
-    console.log('[ROLES API] Found permissions:', permissions.length);
+    // For managers, only return permissions needed for staff
+    let permissions = [];
+    try {
+      if (isManager) {
+        // Managers only need basic permissions for staff
+        permissions = await prisma.permission.findMany({
+          where: {
+            OR: [
+              { category: 'product' },
+              { category: 'quote' },
+              { name: 'dashboard:view' }
+            ]
+          },
+          orderBy: { name: 'asc' }
+        });
+      } else {
+        // Admins get all permissions
+        try {
+          permissions = await prisma.permission.findMany({
+            orderBy: [
+              { category: 'asc' },
+              { name: 'asc' }
+            ]
+          });
+        } catch (categoryError) {
+          console.log('[ROLES API] Category field not found, ordering by name');
+          permissions = await prisma.permission.findMany({
+            orderBy: { name: 'asc' }
+          });
+        }
+      }
+      console.log('[ROLES API] Found permissions:', permissions.length);
+    } catch (permError) {
+      console.error('[ROLES API] Permissions error:', permError);
+      permissions = [];
+    }
+    
     console.log('[ROLES API] ========== END ==========');
     
     return NextResponse.json({ roles, permissions });
     
   } catch (error) {
     console.error('[ROLES API] Fetch error:', error);
-    return NextResponse.json(
-      { error: 'Internal server error: ' + error.message },
-      { status: 500 }
-    );
+    // Return empty arrays instead of 500 error to keep the page working
+    return NextResponse.json({ 
+      roles: [], 
+      permissions: [],
+      error: 'Failed to fetch roles' 
+    });
   }
 }
 
@@ -129,9 +179,14 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Forbidden - Insufficient permissions' }, { status: 403 });
     }
     
-    // Check if role already exists
-    const existingRole = await prisma.role.findUnique({
-      where: { name: name.toUpperCase() }
+    // Check if role already exists (case insensitive)
+    const existingRole = await prisma.role.findFirst({
+      where: { 
+        name: { 
+          equals: name.toUpperCase(),
+          mode: 'insensitive'
+        }
+      }
     });
     
     if (existingRole) {

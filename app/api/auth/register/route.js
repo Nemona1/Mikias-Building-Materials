@@ -1,3 +1,4 @@
+// app/api/auth/register/route.js
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { logSecurityEvent, SecurityActions } from '@/lib/security-log';
@@ -20,14 +21,14 @@ export async function POST(request) {
     }
     
     const body = await request.json();
-    const { firstName, lastName, email, password } = body;
+    const { firstName, lastName, email, phone, companyName, password } = body;
     const ipAddress = request.headers.get('x-forwarded-for') || 'unknown';
     const userAgent = request.headers.get('user-agent') || 'unknown';
     
     // Validate input
     if (!firstName || !lastName || !email || !password) {
       return NextResponse.json(
-        { error: 'All fields are required' },
+        { error: 'First name, last name, email, and password are required' },
         { status: 400 }
       );
     }
@@ -37,6 +38,14 @@ export async function POST(request) {
     if (!emailRegex.test(email)) {
       return NextResponse.json(
         { error: 'Please enter a valid email address (e.g., name@domain.com)' },
+        { status: 400 }
+      );
+    }
+    
+    // Validate phone if provided
+    if (phone && !/^\+?[0-9\s\-()]{10,}$/.test(phone.replace(/\s/g, ''))) {
+      return NextResponse.json(
+        { error: 'Please enter a valid phone number' },
         { status: 400 }
       );
     }
@@ -63,8 +72,13 @@ export async function POST(request) {
     }
     
     // Get CUSTOMER role (default for all new registrations)
-    const customerRole = await prisma.role.findUnique({
-      where: { name: 'customer' }
+    const customerRole = await prisma.role.findFirst({
+      where: { 
+        name: {
+          equals: 'customer',
+          mode: 'insensitive'
+        }
+      }
     });
     
     if (!customerRole) {
@@ -90,18 +104,25 @@ export async function POST(request) {
     // Hash password
     const passwordHash = await hashPassword(password);
     
-    // Create user with CUSTOMER role (auto-approved)
+    // Create user with CUSTOMER role
+    // FIX: Use role connect instead of roleId directly
     const user = await prisma.user.create({
       data: {
         firstName,
         lastName,
         email,
+        phone: phone || '',
+        companyName: companyName || '',
         passwordHash,
         verificationToken,
         verificationExpiry,
         isVerified: !requireEmailVerification,
-        roleId: customerRole.id,
-        isActive: true,
+        // FIX: Use role connect instead of roleId
+        role: {
+          connect: {
+            id: customerRole.id
+          }
+        }
       }
     });
     
@@ -113,7 +134,13 @@ export async function POST(request) {
       resourceId: user.id,
       ipAddress,
       userAgent,
-      details: { email, role: 'customer', requireVerification: requireEmailVerification },
+      details: { 
+        email, 
+        role: 'customer', 
+        requireVerification: requireEmailVerification,
+        hasPhone: !!phone,
+        hasCompany: !!companyName
+      },
       success: true
     });
     

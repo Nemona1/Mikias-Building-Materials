@@ -1,6 +1,7 @@
+// components/layout/Sidebar.jsx - Fixed navigation handler
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useSidebar } from '@/context/SidebarContext';
 import { 
@@ -74,7 +75,6 @@ const IconComponents = {
   ChevronUp
 };
 
-// Role badge colors and icons
 const roleConfig = {
   'super_admin': { 
     label: 'Super Admin', 
@@ -108,57 +108,92 @@ const roleConfig = {
   }
 };
 
+// Cache menu items by role
+const menuCache = new Map();
+
 export default function Sidebar() {
   const { collapsed, toggleSidebar } = useSidebar();
   const { user, isLoading } = useAuth();
-  const [menuCategories, setMenuCategories] = useState([]);
-  const [expandedCategories, setExpandedCategories] = useState({});
   const pathname = usePathname();
   const router = useRouter();
+  const [expandedCategories, setExpandedCategories] = useState({});
+  const [isNavigating, setIsNavigating] = useState(false);
+  const navigationTimeout = useRef(null);
 
+  // Memoize menu items - only recompute when user changes
+  const menuCategories = useMemo(() => {
+    if (!user) return getSidebarItems('customer');
+    
+    const roleName = user.role?.name || 'customer';
+    
+    // Check cache first
+    if (menuCache.has(roleName)) {
+      return menuCache.get(roleName);
+    }
+    
+    const items = getSidebarItems(roleName);
+    menuCache.set(roleName, items);
+    return items;
+  }, [user]);
+
+  // Initialize expanded categories based on active path
   useEffect(() => {
-    if (user) {
-      const items = getSidebarItems(user.role?.name);
-      setMenuCategories(items);
-      
-      // Initialize expanded state based on active path
+    if (menuCategories.length > 0) {
       const initialExpanded = {};
-      items.forEach((category, index) => {
-        // Check if any item in this category is active
+      menuCategories.forEach((category, index) => {
         const hasActiveItem = category.items.some(item => 
           pathname === item.path || pathname.startsWith(item.path + '/')
         );
-        // Categories are collapsed by default, except the one with active item
         if (hasActiveItem) {
           initialExpanded[index] = true;
         }
       });
       setExpandedCategories(initialExpanded);
-    } else {
-      setMenuCategories(getSidebarItems('customer'));
     }
-  }, [user, pathname]);
+  }, [menuCategories, pathname]);
 
-  const getIconComponent = (iconName) => {
+  const getIconComponent = useCallback((iconName) => {
     return IconComponents[iconName] || LayoutDashboard;
-  };
+  }, []);
 
-  const getRoleConfig = (roleName) => {
+  const getRoleConfig = useCallback((roleName) => {
     return roleConfig[roleName] || roleConfig['customer'];
-  };
+  }, []);
 
-  const handleNavigation = (path) => {
-    if (path) {
-      router.push(path);
+  // Handle navigation without page refresh
+  const handleNavigation = useCallback((path) => {
+    if (!path) return;
+    
+    // Clear any existing timeout
+    if (navigationTimeout.current) {
+      clearTimeout(navigationTimeout.current);
     }
-  };
+    
+    // Show loading state
+    setIsNavigating(true);
+    
+    // Use router.push for client-side navigation (no page refresh)
+    router.push(path);
+    
+    // Reset loading state after navigation (fallback)
+    navigationTimeout.current = setTimeout(() => {
+      setIsNavigating(false);
+    }, 3000);
+  }, [router]);
 
-  const toggleCategory = (index) => {
+  // Prefetch on hover
+  const handlePrefetch = useCallback((path) => {
+    if (path) {
+      router.prefetch(path);
+    }
+  }, [router]);
+
+  const toggleCategory = useCallback((index) => {
     setExpandedCategories(prev => ({
       ...prev,
       [index]: !prev[index]
     }));
-  };
+  }, []);
 
   // Show skeleton loading
   if (isLoading) {
@@ -240,7 +275,6 @@ export default function Sidebar() {
       {/* Navigation Menu */}
       <nav className="flex-1 overflow-y-auto py-4 px-3 custom-scrollbar">
         {!collapsed ? (
-          // Expanded sidebar with categories
           <div className="space-y-2">
             {menuCategories.map((category, index) => {
               const CategoryIcon = getIconComponent(category.icon);
@@ -251,7 +285,6 @@ export default function Sidebar() {
 
               return (
                 <div key={index} className="space-y-1">
-                  {/* Category Header */}
                   <button
                     onClick={() => toggleCategory(index)}
                     className={`
@@ -270,7 +303,6 @@ export default function Sidebar() {
                     )}
                   </button>
 
-                  {/* Category Items */}
                   {isExpanded && (
                     <div className="ml-4 space-y-1 border-l-2 border-border/50 pl-3">
                       {category.items.map((item) => {
@@ -281,13 +313,16 @@ export default function Sidebar() {
                           <button
                             key={item.path}
                             onClick={() => handleNavigation(item.path)}
+                            onMouseEnter={() => handlePrefetch(item.path)}
                             className={`
                               w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-all duration-200 text-sm
                               ${isActive 
                                 ? 'bg-primary/10 text-primary border-r-2 border-primary' 
                                 : 'text-muted hover:text-primary hover:bg-primary/5'
                               }
+                              ${isNavigating ? 'opacity-50 cursor-wait' : ''}
                             `}
+                            disabled={isNavigating}
                           >
                             <ItemIcon className="h-4 w-4 flex-shrink-0" />
                             <span className="font-medium">{item.label}</span>
@@ -301,7 +336,6 @@ export default function Sidebar() {
             })}
           </div>
         ) : (
-          // Collapsed sidebar - only icons with tooltips
           <div className="space-y-4">
             {menuCategories.map((category, index) => {
               const CategoryIcon = getIconComponent(category.icon);
@@ -322,7 +356,6 @@ export default function Sidebar() {
                     `}>
                       <CategoryIcon className="h-5 w-5" />
                     </div>
-                    {/* Show active sub-items as small dots */}
                     {hasActiveItem && (
                       <div className="w-1 h-1 rounded-full bg-primary"></div>
                     )}

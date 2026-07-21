@@ -1,4 +1,4 @@
-// hooks/useAuth.js - Complete working version
+// hooks/useAuth.js - Complete working version with localStorage persistence
 'use client';
 
 import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
@@ -40,6 +40,22 @@ export function AuthProvider({ children }) {
     return PUBLIC_ROUTES.includes(path) || path?.startsWith('/api/auth/');
   };
 
+  // Load user from localStorage on initial mount
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      try {
+        const parsedUser = JSON.parse(storedUser);
+        console.log('[Auth] Loaded user from localStorage:', parsedUser.email);
+        setUser(parsedUser);
+        setIsAuthenticated(true);
+      } catch (e) {
+        console.error('[Auth] Failed to parse stored user:', e);
+        localStorage.removeItem('user');
+      }
+    }
+  }, []);
+
   const fetchUser = useCallback(async (skipTokenCheck = false) => {
     // Prevent multiple simultaneous fetches
     if (fetchAttempted.current && !skipTokenCheck) {
@@ -65,6 +81,7 @@ export function AuthProvider({ children }) {
 
           if (res.ok) {
             const userData = await res.json();
+            console.log('[Auth] User data from cookie:', userData);
             setUser(userData);
             setIsAuthenticated(true);
             setIsInitialized(true);
@@ -105,6 +122,7 @@ export function AuthProvider({ children }) {
       // We have a token in localStorage, try to use it
       try {
         console.log('[Auth] Attempting authentication with localStorage token...');
+        
         const res = await fetch('/api/auth/me', {
           headers: { 
             'Authorization': `Bearer ${token}`,
@@ -113,8 +131,11 @@ export function AuthProvider({ children }) {
           credentials: 'include',
         });
 
+        console.log('[Auth] /api/auth/me response status:', res.status);
+
         if (res.ok) {
           const userData = await res.json();
+          console.log('[Auth] User data from token:', userData);
           setUser(userData);
           setIsAuthenticated(true);
           setIsInitialized(true);
@@ -151,15 +172,31 @@ export function AuthProvider({ children }) {
 
   // Initial fetch on mount - but only if not on public routes
   useEffect(() => {
+    console.log('[Auth] Pathname:', pathname);
+    console.log('[Auth] Is public route:', isPublicRoute(pathname));
+    console.log('[Auth] Current user from state:', user?.email);
+    
+    // If we already have a user from localStorage, we might not need to fetch
+    if (user && isAuthenticated) {
+      console.log('[Auth] User already loaded from localStorage, skipping fetch');
+      setIsLoading(false);
+      setIsInitialized(true);
+      return;
+    }
+    
     // Check if we're on a public route
     if (isPublicRoute(pathname)) {
       console.log('[Auth] On public route, checking if user is already authenticated...');
       
       // Check if there's a token, if yes, fetch user
       const token = localStorage.getItem('accessToken');
-      if (token) {
+      if (token && !user) {
         console.log('[Auth] Token found on public route, fetching user...');
         fetchUser();
+      } else if (user) {
+        console.log('[Auth] User already loaded, skipping');
+        setIsLoading(false);
+        setIsInitialized(true);
       } else {
         // No token, just mark as initialized
         console.log('[Auth] No token on public route, skipping auth check');
@@ -169,11 +206,16 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    // For protected routes, always fetch user
-    if (!isInitialized) {
+    // For protected routes, always fetch user if not already loaded
+    if (!isInitialized && !user) {
+      console.log('[Auth] Protected route, fetching user...');
       fetchUser();
+    } else if (user) {
+      console.log('[Auth] Protected route, user already loaded');
+      setIsLoading(false);
+      setIsInitialized(true);
     }
-  }, [fetchUser, isInitialized, pathname]);
+  }, [fetchUser, isInitialized, pathname, user, isAuthenticated]);
 
   // Listen for storage changes (for multi-tab support)
   useEffect(() => {
@@ -185,6 +227,7 @@ export function AuthProvider({ children }) {
         } else {
           setUser(null);
           setIsAuthenticated(false);
+          localStorage.removeItem('user');
         }
       }
     };

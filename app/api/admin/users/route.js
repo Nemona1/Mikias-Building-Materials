@@ -1,14 +1,17 @@
+// app/api/admin/users/route.js
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAccessToken } from '@/lib/auth/jwt';
-import { hasPermission, hasAdminAccess, getUserRoles } from '@/lib/auth/permissions';
+import { hasAdminAccess, getUserRoles, hasPermission } from '@/lib/auth/permissions';
 import { logSecurityEvent, SecurityActions } from '@/lib/security-log';
+import bcrypt from 'bcryptjs';
+import { sendUserCredentialsEmail } from '@/lib/email/sendUserCredentialsEmail';
+
 
 export async function GET(request) {
   try {
     console.log('[Admin Users API] GET request received');
     
-    // Get token from header or cookie
     let token = request.headers.get('authorization')?.replace('Bearer ', '');
     if (!token) {
       token = request.cookies.get('accessToken')?.value;
@@ -28,7 +31,6 @@ export async function GET(request) {
     
     console.log('[Admin Users API] User ID:', decoded.userId);
     
-    // Check if user has admin access
     const isAdmin = await hasAdminAccess(decoded.userId);
     if (!isAdmin) {
       console.log('[Admin Users API] User is not admin');
@@ -37,32 +39,26 @@ export async function GET(request) {
     
     console.log('[Admin Users API] Admin access granted');
     
-    // Get current user's roles
     const currentUserRoles = await getUserRoles(decoded.userId);
     const isSuperAdmin = currentUserRoles.some(r => r.name === 'super_admin');
     
     console.log('[Admin Users API] Is Super Admin:', isSuperAdmin);
     
-    // Get query params for pagination
     const url = new URL(request.url);
     const limit = parseInt(url.searchParams.get('limit')) || 50;
     const page = parseInt(url.searchParams.get('page')) || 1;
     const skip = (page - 1) * limit;
     
-    // Build filter
     const where = {};
     
-    // If not super admin, exclude super_admin users
     if (!isSuperAdmin) {
       where.role = {
         name: { not: 'super_admin' }
       };
     }
     
-    // Get total count
     const total = await prisma.user.count({ where });
     
-    // Get users with pagination
     const users = await prisma.user.findMany({
       where,
       include: {
@@ -98,6 +94,7 @@ export async function GET(request) {
       directPermissions: user.directPermissions,
       twoFactorEnabled: user.twoFactorEnabled,
       isActive: user.isActive !== false,
+      mustChangePassword: user.mustChangePassword || false,
       lastLoginAt: user.lastLoginAt,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt
@@ -144,13 +141,11 @@ export async function PUT(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
     
-    // Check if user has admin access
     const isAdmin = await hasAdminAccess(decoded.userId);
     if (!isAdmin) {
       return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
     }
     
-    // Check if user has update permission
     const hasUpdatePermission = await hasPermission(decoded.userId, 'users:update');
     if (!hasUpdatePermission) {
       return NextResponse.json({ error: 'Forbidden - Insufficient permissions' }, { status: 403 });
@@ -180,7 +175,6 @@ export async function PUT(request) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
     
-    // Check if target is super_admin - only super_admin can modify super_admin
     const targetRoles = [];
     if (targetUser.role) targetRoles.push(targetUser.role.name);
     if (targetUser.userRoles) {
@@ -194,9 +188,7 @@ export async function PUT(request) {
       return NextResponse.json({ error: 'Forbidden - Cannot modify super admin' }, { status: 403 });
     }
     
-    // Handle role assignment or revocation
     if (roleId !== undefined) {
-      // Check if trying to assign super_admin role - only super_admin can do this
       if (roleId) {
         const newRole = await prisma.role.findUnique({
           where: { id: roleId }
@@ -218,7 +210,6 @@ export async function PUT(request) {
         }
       });
       
-      // Log security event for role change
       await logSecurityEvent({
         userId: decoded.userId,
         action: roleId ? SecurityActions.ROLE_ASSIGNED : SecurityActions.ROLE_REMOVED,
@@ -237,7 +228,6 @@ export async function PUT(request) {
         success: true
       });
       
-      // If role was revoked, invalidate all user sessions
       if (roleId === null) {
         await prisma.session.deleteMany({
           where: { userId }
@@ -245,14 +235,12 @@ export async function PUT(request) {
       }
     }
     
-    // Handle user deactivation/activation
     if (action === 'deactivate') {
       await prisma.user.update({
         where: { id: userId },
         data: { isActive: false }
       });
       
-      // Invalidate all sessions
       await prisma.session.deleteMany({
         where: { userId }
       });
@@ -308,9 +296,21 @@ export async function PUT(request) {
   }
 }
 
+// app/api/admin/users/route.js - Fixed POST method
+
 export async function POST(request) {
   try {
-    const { email, firstName, lastName, roleId, password } = await request.json();
+    const { 
+      email, 
+      firstName, 
+      lastName, 
+      phone, 
+      companyName, 
+      roleId, 
+      twoFactorEnabled,
+      sendWelcomeEmail = true 
+    } = await request.json();
+    
     const ipAddress = request.headers.get('x-forwarded-for') || 'unknown';
     const userAgent = request.headers.get('user-agent') || 'unknown';
     
@@ -330,13 +330,11 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
     
-    // Check if user has admin access
     const isAdmin = await hasAdminAccess(decoded.userId);
     if (!isAdmin) {
       return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
     }
     
-    // Check if user has create permission
     const hasCreatePermission = await hasPermission(decoded.userId, 'users:create');
     if (!hasCreatePermission) {
       return NextResponse.json({ error: 'Forbidden - Insufficient permissions' }, { status: 403 });
@@ -344,6 +342,12 @@ export async function POST(request) {
     
     const adminRoles = await getUserRoles(decoded.userId);
     const isSuperAdmin = adminRoles.some(r => r.name === 'super_admin');
+    
+    // Get the admin user for audit logging
+    const adminUser = await prisma.user.findUnique({
+      where: { id: decoded.userId },
+      include: { role: true }
+    });
     
     // Check if trying to create super_admin - only super_admin can do this
     if (roleId) {
@@ -364,59 +368,135 @@ export async function POST(request) {
       return NextResponse.json({ error: 'User with this email already exists' }, { status: 409 });
     }
     
-    // Hash password
-    const bcrypt = await import('bcryptjs');
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Generate temporary password
+    const tempPassword = generateTemporaryPassword();
+    const hashedPassword = await bcrypt.hash(tempPassword, 10);
+    const tempPasswordExpiry = new Date();
+    tempPasswordExpiry.setHours(tempPasswordExpiry.getHours() + 24);
     
-    // Create user
+    // Create user with temporary password
+    // FIX: Set isVerified to true for admin-created users
     const newUser = await prisma.user.create({
       data: {
         email,
         firstName,
         lastName,
+        phone: phone || '',
+        companyName: companyName || '',
         passwordHash: hashedPassword,
-        roleId: roleId || null,
-        isVerified: true // Admin-created users are pre-verified
+        role: roleId ? { connect: { id: roleId } } : undefined,
+        isVerified: true, // Admin-created users are pre-verified
+        twoFactorEnabled: twoFactorEnabled || false,
+        tempPassword: tempPassword,
+        tempPasswordExpiry: tempPasswordExpiry,
+        tempPasswordSentAt: new Date(),
+        mustChangePassword: true,
+        createdByAdmin: true
       },
       include: {
         role: true
       }
     });
     
-    // Log security event
+    // Send welcome email with credentials
+    let emailSent = false;
+    if (sendWelcomeEmail) {
+      try {
+        emailSent = await sendUserCredentialsEmail({
+          email: newUser.email,
+          firstName: newUser.firstName,
+          lastName: newUser.lastName,
+          tempPassword: tempPassword,
+          role: newUser.role?.name || 'User',
+          expiryHours: 24
+        });
+        console.log('[Admin Users API] Welcome email sent:', emailSent);
+      } catch (emailError) {
+        console.error('[Admin Users API] Failed to send welcome email:', emailError);
+      }
+    }
+    
+    // Log security event for user creation with all details
     await logSecurityEvent({
       userId: decoded.userId,
-      action: SecurityActions.USER_CREATED,
+      action: 'USER_CREATED_BY_ADMIN',
       resourceType: 'user',
       resourceId: newUser.id,
       ipAddress,
       userAgent,
       details: {
         targetUserEmail: newUser.email,
-        targetUserRole: newUser.role?.name,
-        createdBy: decoded.userId
+        targetUserFirstName: newUser.firstName,
+        targetUserLastName: newUser.lastName,
+        targetUserRole: newUser.role?.name || 'No role assigned',
+        targetUserRoleId: roleId || null,
+        createdBy: adminUser?.email || decoded.userId,
+        createdByRole: adminUser?.role?.name || 'Unknown',
+        emailSent: emailSent,
+        tempPasswordExpiry: tempPasswordExpiry.toISOString(),
+        twoFactorEnabled: twoFactorEnabled || false,
+        createdByAdmin: true,
+        isVerified: true // Log that user was pre-verified
       },
       success: true
     });
     
     return NextResponse.json({
       success: true,
+      message: emailSent 
+        ? 'User created successfully. Welcome email sent with credentials.'
+        : 'User created successfully. Could not send welcome email. Please resend credentials.',
       user: {
         id: newUser.id,
         email: newUser.email,
         firstName: newUser.firstName,
         lastName: newUser.lastName,
-        role: newUser.role
+        role: newUser.role,
+        tempPassword: tempPassword,
+        tempPasswordExpiry: tempPasswordExpiry,
+        mustChangePassword: true,
+        isVerified: true
       }
     });
     
   } catch (error) {
     console.error('[Admin Users API] Error:', error);
+    
+    // Log the error for security
+    try {
+      await logSecurityEvent({
+        userId: decoded?.userId || null,
+        action: 'USER_CREATION_FAILED',
+        resourceType: 'user',
+        ipAddress: request.headers.get('x-forwarded-for') || 'unknown',
+        userAgent: request.headers.get('user-agent') || 'unknown',
+        details: {
+          email: email || 'unknown',
+          error: error.message
+        },
+        success: false
+      });
+    } catch (logError) {
+      console.error('Failed to log user creation error:', logError);
+    }
+    
     return NextResponse.json(
-      { error: 'Internal server error: ' + error.message },
+      { error: 'Failed to create user: ' + error.message },
       { status: 500 }
     );
   }
+}
+
+// Helper function to generate temporary password
+function generateTemporaryPassword() {
+  const length = 12;
+  const charset = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+-=';
+  let password = '';
+  for (let i = 0; i < length; i++) {
+    const randomIndex = Math.floor(Math.random() * charset.length);
+    password += charset[randomIndex];
+  }
+  return password;
 }
 
 export async function DELETE(request) {
@@ -446,13 +526,11 @@ export async function DELETE(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
     
-    // Check if user has admin access
     const isAdmin = await hasAdminAccess(decoded.userId);
     if (!isAdmin) {
       return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
     }
     
-    // Check if user has delete permission
     const hasDeletePermission = await hasPermission(decoded.userId, 'users:delete');
     if (!hasDeletePermission) {
       return NextResponse.json({ error: 'Forbidden - Insufficient permissions' }, { status: 403 });
@@ -477,12 +555,10 @@ export async function DELETE(request) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
     
-    // Prevent deleting own account
     if (targetUser.id === decoded.userId) {
       return NextResponse.json({ error: 'Cannot delete your own account' }, { status: 403 });
     }
     
-    // Check if target is super_admin - only super_admin can delete super_admin
     const targetRoles = [];
     if (targetUser.role) targetRoles.push(targetUser.role.name);
     if (targetUser.userRoles) {
@@ -496,12 +572,10 @@ export async function DELETE(request) {
       return NextResponse.json({ error: 'Forbidden - Cannot delete super admin' }, { status: 403 });
     }
     
-    // Delete user
     await prisma.user.delete({
       where: { id: userId }
     });
     
-    // Log security event
     await logSecurityEvent({
       userId: decoded.userId,
       action: SecurityActions.USER_DELETED,

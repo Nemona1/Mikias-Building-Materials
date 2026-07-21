@@ -19,7 +19,7 @@ export async function GET(request) {
       console.log('[ME] Token from header:', !!token);
     }
     
-    // If no token at all, return 401 (Unauthorized)
+    // If no token at all, return 401
     if (!token) {
       console.log('[ME] No token found');
       return NextResponse.json(
@@ -29,7 +29,7 @@ export async function GET(request) {
     }
     
     console.log('[ME] Verifying token...');
-    const { valid, decoded, user: userData } = await verifyAccessToken(token);
+    const { valid, decoded } = await verifyAccessToken(token);
     
     if (!valid) {
       console.log('[ME] Token invalid');
@@ -41,26 +41,7 @@ export async function GET(request) {
     
     console.log('[ME] Token valid for user ID:', decoded?.userId);
     
-    // If verifyAccessToken already returned user data, use it
-    if (userData) {
-      console.log('[ME] Returning user data from verifyAccessToken');
-      return NextResponse.json({
-        id: userData.id,
-        email: userData.email,
-        firstName: userData.firstName,
-        lastName: userData.lastName,
-        phone: userData.phone,
-        companyName: userData.companyName,
-        role: userData.role,
-        twoFactorEnabled: userData.twoFactorEnabled,
-        isVerified: userData.isVerified,
-        createdAt: userData.createdAt,
-        updatedAt: userData.updatedAt
-      });
-    }
-    
-    // Otherwise fetch from database
-    console.log('[ME] Fetching user from database...');
+    // Fetch user from database with role
     const user = await prisma.user.findUnique({
       where: { id: decoded.userId },
       select: {
@@ -80,12 +61,14 @@ export async function GET(request) {
           }
         },
         createdAt: true,
-        updatedAt: true
+        updatedAt: true,
+        lastLoginAt: true,
+        mustChangePassword: true
       }
     });
     
     if (!user) {
-      console.log('[ME] User not found in database');
+      console.log('[ME] User not found');
       return NextResponse.json(
         { error: 'User not found' },
         { status: 404 }
@@ -93,6 +76,8 @@ export async function GET(request) {
     }
     
     console.log('[ME] User found:', user.email);
+    console.log('[ME] User role:', user.role);
+    
     return NextResponse.json(user);
     
   } catch (error) {

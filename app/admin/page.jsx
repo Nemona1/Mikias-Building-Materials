@@ -1,17 +1,18 @@
-// app/admin/page.jsx
+// app/admin/page.jsx - Admin landing page
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import Link from 'next/link';
 import { 
   Package, FileText, Users, Clock, 
   ArrowRight, PlusCircle, Shield, CheckCircle, AlertCircle,
-  Settings as SettingsIcon
+  Settings as SettingsIcon, RefreshCw
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 
-export default function AdminDashboard() {
+export default function AdminDashboardPage({ refreshKey = 0 }) {
   const router = useRouter();
   const { user, isLoading } = useAuth();
   const [stats, setStats] = useState({
@@ -21,7 +22,57 @@ export default function AdminDashboard() {
     pendingQuotes: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
+  const fetchStats = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const token = localStorage.getItem('accessToken');
+      
+      // Fetch products count
+      const productsRes = await fetch('/api/products?limit=1', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (productsRes.ok) {
+        const data = await productsRes.json();
+        setStats(prev => ({ ...prev, totalProducts: data.pagination?.total || 0 }));
+      }
+
+      // Fetch quotes count
+      const quotesRes = await fetch('/api/quotes?limit=1', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (quotesRes.ok) {
+        const data = await quotesRes.json();
+        const quotes = data.quotes || [];
+        const pending = quotes.filter(q => q.status === 'pending').length;
+        setStats(prev => ({ 
+          ...prev, 
+          totalQuotes: data.pagination?.total || 0,
+          pendingQuotes: pending
+        }));
+      }
+
+      // Fetch customers count
+      const customersRes = await fetch('/api/admin/users?limit=1', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (customersRes.ok) {
+        const data = await customersRes.json();
+        const users = data.users || [];
+        const customers = users.filter(u => u.role?.name === 'customer');
+        setStats(prev => ({ ...prev, totalCustomers: customers.length }));
+      }
+    } catch (error) {
+      console.error('[Admin Dashboard] Error fetching stats:', error);
+      toast.error('Failed to load stats');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, []);
+
+  // Initial load and refresh on key change
   useEffect(() => {
     // If not authenticated or not admin, redirect
     if (!isLoading) {
@@ -42,54 +93,14 @@ export default function AdminDashboard() {
       }
     }
 
-    // Fetch dashboard stats
-    const fetchStats = async () => {
-      try {
-        const token = localStorage.getItem('accessToken');
-        
-        // Fetch products count
-        const productsRes = await fetch('/api/products?limit=1', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (productsRes.ok) {
-          const data = await productsRes.json();
-          setStats(prev => ({ ...prev, totalProducts: data.pagination?.total || 0 }));
-        }
-
-        // Fetch quotes count
-        const quotesRes = await fetch('/api/quotes?limit=1', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (quotesRes.ok) {
-          const data = await quotesRes.json();
-          const quotes = data.quotes || [];
-          const pending = quotes.filter(q => q.status === 'pending').length;
-          setStats(prev => ({ 
-            ...prev, 
-            totalQuotes: data.pagination?.total || 0,
-            pendingQuotes: pending
-          }));
-        }
-
-        // Fetch customers count
-        const customersRes = await fetch('/api/admin/users?limit=1', {
-          headers: { 'Authorization': `Bearer ${token}` }
-        });
-        if (customersRes.ok) {
-          const data = await customersRes.json();
-          const users = data.users || [];
-          const customers = users.filter(u => u.role?.name === 'customer');
-          setStats(prev => ({ ...prev, totalCustomers: customers.length }));
-        }
-      } catch (error) {
-        console.error('[Admin Dashboard] Error fetching stats:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
     fetchStats();
-  }, [user, isLoading, router]);
+  }, [user, isLoading, router, fetchStats, refreshKey]);
+
+  // Handle manual refresh
+  const handleRefresh = useCallback(() => {
+    fetchStats();
+    toast.success('Dashboard refreshed');
+  }, [fetchStats]);
 
   if (isLoading || loading) {
     return (
@@ -148,6 +159,14 @@ export default function AdminDashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm text-muted hover:text-primary border border-border rounded-lg hover:border-primary/30 transition-all disabled:opacity-50 hover:bg-primary/5"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
           <span className="text-xs px-3 py-1 bg-primary/10 text-primary rounded-full">
             {isSuperAdmin ? 'Super Admin' : 'Admin'} Access
           </span>

@@ -36,6 +36,13 @@ model User {
   passwordChangeOtpAttempts  Int     @default(0)
   passwordChangeOtpLockout   DateTime?
 
+   // Temporary password for admin-created users
+  tempPassword         String?
+  tempPasswordExpiry   DateTime?
+  tempPasswordSentAt   DateTime?
+  mustChangePassword   Boolean   @default(false)
+  createdByAdmin       Boolean   @default(false)
+
   // 2FA Fields
   twoFactorEnabled       Boolean   @default(false)
   twoFactorSecret        String?

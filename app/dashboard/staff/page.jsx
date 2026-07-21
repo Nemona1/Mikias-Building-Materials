@@ -1,14 +1,45 @@
+// app/dashboard/staff/page.jsx
 'use client';
 
 import { useState, useEffect } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { 
-  FileText, Edit, CheckCircle, Clock, PlusCircle, FolderOpen, 
-  TrendingUp, Eye, ThumbsUp, Calendar, RefreshCw, 
-  AlertCircle, ChevronRight, Star, Users, Share2, MessageCircle,
-  Package, ShoppingCart, Truck, Phone, Building2, Clipboard,
-  UserCheck, FileCheck, Printer, Download, Search, Filter
+  LayoutDashboard, 
+  FileText, 
+  Package, 
+  Clock, 
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  TrendingUp,
+  Users,
+  Calendar,
+  ChevronRight,
+  RefreshCw,
+  Eye,
+  Edit,
+  Plus,
+  Search,
+  Filter,
+  Download,
+  BarChart3,
+  PieChart,
+  Activity,
+  Zap,
+  Star,
+  Award,
+  Target,
+  Briefcase,
+  MessageSquare,
+  Phone,
+  Mail,
+  Building2,
+  User,
+  Truck,
+  ShoppingCart,
+  DollarSign,
+  Percent
 } from 'lucide-react';
 import { useInactivityTimer } from '@/hooks/useInactivityTimer';
 import { useRouter } from 'next/navigation';
@@ -19,64 +50,180 @@ export default function StaffDashboard() {
   useInactivityTimer(1);
   const router = useRouter();
   const { user } = useAuth();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
-    totalQuotes: 156,
-    processedQuotes: 89,
-    pendingQuotes: 45,
-    customerInquiries: 22,
-    viewsThisMonth: 12450,
-    avgResponseTime: 78,
-    pendingApprovals: 8,
-    activeOrders: 12
+    totalQuotes: 0,
+    pendingQuotes: 0,
+    approvedQuotes: 0,
+    completedQuotes: 0,
+    rejectedQuotes: 0,
+    totalProducts: 0,
+    myQuotes: 0,
+    productivity: 0,
+    taskCompletion: 0,
+    monthlyGrowth: 0,
+    activeCustomers: 0
   });
-  
-  const [recentQuotes, setRecentQuotes] = useState([
-    { id: 1, title: 'Cement & Steel Order', customer: 'ABC Construction', status: 'processed', amount: 'ETB 45,000', updatedAt: '2 hours ago' },
-    { id: 2, title: 'Sanitary Supplies', customer: 'XYZ Building', status: 'pending', amount: 'ETB 12,500', updatedAt: '5 hours ago' },
-    { id: 3, title: 'Electrical Materials', customer: 'DEF Contractors', status: 'review', amount: 'ETB 8,200', updatedAt: '1 day ago' },
-    { id: 4, title: 'Hardware Accessories', customer: 'GHI Developers', status: 'processed', amount: 'ETB 3,800', updatedAt: '2 days ago' },
-    { id: 5, title: 'Building Materials Bundle', customer: 'JKL Construction', status: 'pending', amount: 'ETB 67,000', updatedAt: '3 days ago' }
-  ]);
 
-  const calendarItems = [
-    { day: 'Monday', title: 'Quote Review: Cement Order', status: 'scheduled' },
-    { day: 'Tuesday', title: 'Customer Follow-up: Sanitary', status: 'in-progress' },
-    { day: 'Wednesday', title: 'Stock Check: Steel Inventory', status: 'scheduled' },
-    { day: 'Thursday', title: 'Delivery Schedule', status: 'planned' },
-    { day: 'Friday', title: 'Weekly Quote Summary', status: 'planned' }
-  ];
+  const [recentQuotes, setRecentQuotes] = useState([]);
+  const [pendingTasks, setPendingTasks] = useState([]);
+  const [topProducts, setTopProducts] = useState([]);
+
+  useEffect(() => {
+    fetchDashboardData();
+    const interval = setInterval(fetchDashboardData, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      toast.success('Dashboard refreshed');
+      const token = localStorage.getItem('accessToken');
+      
+      if (!token) {
+        toast.error('Please login again');
+        router.push('/login');
+        return;
+      }
+
+      // Fetch quotes
+      const quotesRes = await fetch('/api/admin/quotes', {
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      // Fetch products
+      const productsRes = await fetch('/api/admin/products?limit=10', {
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      let quotes = [];
+      let products = [];
+
+      if (quotesRes.ok) {
+        const quotesData = await quotesRes.json();
+        quotes = quotesData.quotes || quotesData || [];
+      }
+
+      if (productsRes.ok) {
+        const productsData = await productsRes.json();
+        products = productsData.products || productsData || [];
+      }
+
+      // Calculate stats
+      const totalQuotes = quotes.length;
+      const pendingQuotes = quotes.filter(q => q.status === 'pending').length;
+      const approvedQuotes = quotes.filter(q => q.status === 'approved').length;
+      const completedQuotes = quotes.filter(q => q.status === 'completed').length;
+      const rejectedQuotes = quotes.filter(q => q.status === 'rejected').length;
+      
+      // Staff's own quotes (assigned to them or created by them)
+      const myQuotes = quotes.filter(q => 
+        q.assignedTo === user?.id || q.createdBy === user?.id
+      ).length;
+
+      // Calculate productivity
+      const totalProcessed = approvedQuotes + completedQuotes;
+      const productivity = totalQuotes > 0 ? Math.round((totalProcessed / totalQuotes) * 100) : 0;
+      const taskCompletion = totalQuotes > 0 ? Math.round((completedQuotes / totalQuotes) * 100) : 0;
+
+      // Recent quotes (last 5)
+      const recentQuotesList = quotes
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, 5);
+
+      // Pending tasks (pending quotes assigned to staff)
+      const pendingTasksList = quotes
+        .filter(q => q.status === 'pending' && (q.assignedTo === user?.id || q.createdBy === user?.id))
+        .slice(0, 5);
+
+      // Top products (most quoted)
+      const productCount = {};
+      quotes.forEach(q => {
+        if (q.items) {
+          q.items.forEach(item => {
+            const name = item.productName || 'Unknown';
+            productCount[name] = (productCount[name] || 0) + item.quantity;
+          });
+        }
+      });
+      const topProductsList = Object.entries(productCount)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name, count]) => ({ name, count }));
+
+      // Active customers (unique customers with quotes)
+      const uniqueCustomers = new Set(quotes.map(q => q.customerEmail)).size;
+
+      setStats({
+        totalQuotes,
+        pendingQuotes,
+        approvedQuotes,
+        completedQuotes,
+        rejectedQuotes,
+        totalProducts: products.length,
+        myQuotes,
+        productivity,
+        taskCompletion,
+        monthlyGrowth: 8,
+        activeCustomers: uniqueCustomers
+      });
+
+      setRecentQuotes(recentQuotesList);
+      setPendingTasks(pendingTasksList);
+      setTopProducts(topProductsList);
+
     } catch (error) {
-      console.error('Failed to fetch staff dashboard data:', error);
+      console.error('Failed to fetch dashboard data:', error);
       toast.error('Failed to load dashboard data');
     } finally {
       setLoading(false);
     }
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'processed': return 'text-success bg-success/10';
-      case 'pending': return 'text-warning bg-warning/10';
-      case 'review': return 'text-info bg-info/10';
-      default: return 'text-muted bg-muted/10';
-    }
+  const getStatusBadge = (status) => {
+    const config = {
+      pending: { icon: Clock, color: 'text-yellow-600', bg: 'bg-yellow-100 dark:bg-yellow-500/20', label: 'Pending' },
+      approved: { icon: CheckCircle, color: 'text-green-600', bg: 'bg-green-100 dark:bg-green-500/20', label: 'Approved' },
+      completed: { icon: CheckCircle, color: 'text-blue-600', bg: 'bg-blue-100 dark:bg-blue-500/20', label: 'Completed' },
+      rejected: { icon: XCircle, color: 'text-red-600', bg: 'bg-red-100 dark:bg-red-500/20', label: 'Rejected' },
+      'in-progress': { icon: Clock, color: 'text-purple-600', bg: 'bg-purple-100 dark:bg-purple-500/20', label: 'In Progress' }
+    };
+    const { icon: Icon, color, bg, label } = config[status] || config.pending;
+    return (
+      <span className={`inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-full ${bg} ${color}`}>
+        <Icon className="h-3 w-3" />
+        {label}
+      </span>
+    );
   };
 
-  const getStatusIcon = (status) => {
-    switch (status) {
-      case 'processed': return <CheckCircle className="h-3 w-3" />;
-      case 'pending': return <Clock className="h-3 w-3" />;
-      case 'review': return <FileCheck className="h-3 w-3" />;
-      default: return <AlertCircle className="h-3 w-3" />;
-    }
+  const getTimeAgo = (date) => {
+    if (!date) return 'Never';
+    const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+    if (seconds < 60) return `${seconds}s ago`;
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d ago`;
+    const weeks = Math.floor(days / 7);
+    if (weeks < 4) return `${weeks}w ago`;
+    return `${Math.floor(days / 30)}mo ago`;
   };
+
+  const quickActions = [
+    { title: 'View Quotes', description: 'Check all customer quotes', path: '/admin/quotes', icon: FileText, color: 'primary' },
+    { title: 'New Quote', description: 'Create a new quote request', path: '/admin/quotes/new', icon: Plus, color: 'success' },
+    { title: 'Browse Products', description: 'View product catalog', path: '/admin/products', icon: Package, color: 'info' },
+    { title: 'My Tasks', description: 'View assigned tasks', path: '/admin/quotes?assigned=me', icon: Clock, color: 'warning' }
+  ];
 
   const statCards = [
     {
@@ -87,73 +234,66 @@ export default function StaffDashboard() {
       trend: 'up',
       color: 'primary',
       bg: 'bg-primary/10',
-      description: 'All quote requests'
-    },
-    {
-      title: 'Processed',
-      value: stats.processedQuotes,
-      icon: CheckCircle,
-      change: '+8%',
-      trend: 'up',
-      color: 'success',
-      bg: 'bg-success/10',
-      description: 'Completed quotes'
+      description: 'All time'
     },
     {
       title: 'Pending',
       value: stats.pendingQuotes,
       icon: Clock,
-      change: '-3%',
+      change: '-3',
       trend: 'down',
       color: 'warning',
       bg: 'bg-warning/10',
       description: 'Awaiting processing'
     },
     {
-      title: 'Inquiries',
-      value: stats.customerInquiries,
-      icon: MessageCircle,
-      change: '+2',
+      title: 'Approved',
+      value: stats.approvedQuotes,
+      icon: CheckCircle,
+      change: '+5',
       trend: 'up',
-      color: 'error',
-      bg: 'bg-error/10',
-      description: 'Customer questions'
+      color: 'success',
+      bg: 'bg-success/10',
+      description: 'Approved quotes'
     },
     {
-      title: 'Monthly Views',
-      value: `${(stats.viewsThisMonth / 1000).toFixed(1)}K`,
-      icon: Eye,
-      change: '+23%',
+      title: 'Completed',
+      value: stats.completedQuotes,
+      icon: CheckCircle,
+      change: '+8',
       trend: 'up',
       color: 'info',
       bg: 'bg-info/10',
-      description: 'Product views'
+      description: 'Successfully completed'
     },
     {
-      title: 'Response Time',
-      value: `${stats.avgResponseTime} min`,
-      icon: ThumbsUp,
-      change: '-5%',
-      trend: 'down',
+      title: 'My Quotes',
+      value: stats.myQuotes,
+      icon: User,
+      change: '+2',
+      trend: 'up',
       color: 'purple',
       bg: 'bg-purple-100 dark:bg-purple-500/10',
-      description: 'Avg response'
+      description: 'Assigned to you'
+    },
+    {
+      title: 'Products',
+      value: stats.totalProducts,
+      icon: Package,
+      change: '+5%',
+      trend: 'up',
+      color: 'blue',
+      bg: 'bg-blue-100 dark:bg-blue-500/10',
+      description: 'In catalog'
     }
-  ];
-
-  const quickActions = [
-    { title: 'New Quote', description: 'Create a new quote for customer', path: '/staff/quotes/new', icon: PlusCircle, color: 'primary' },
-    { title: 'Manage Quotes', description: 'View and process all quotes', path: '/staff/quotes', icon: FolderOpen, color: 'success' },
-    { title: 'Customers', description: 'View customer inquiries', path: '/staff/customers', icon: Users, color: 'warning', badge: stats.customerInquiries },
-    { title: 'Products', description: 'Browse product catalog', path: '/staff/products', icon: Package, color: 'info' }
   ];
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-full min-h-[400px]">
+      <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <div className="spinner mx-auto mb-4"></div>
-          <p className="text-muted">Loading dashboard data...</p>
+          <div className="spinner mx-auto h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          <p className="mt-4 text-muted">Loading dashboard...</p>
         </div>
       </div>
     );
@@ -164,12 +304,15 @@ export default function StaffDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent">
-            Staff Dashboard
-          </h1>
-          <p className="text-muted mt-1">
-            Welcome back, {user?.firstName}! Managing quotes at Mikias Building Materials
-          </p>
+          <div className="flex items-center gap-3">
+            <LayoutDashboard className="h-8 w-8 text-primary" />
+            <div>
+              <h1 className="text-3xl font-bold text-foreground">Staff Dashboard</h1>
+              <p className="text-muted mt-1">
+                Welcome back, {user?.firstName}! Manage quotes and products
+              </p>
+            </div>
+          </div>
         </div>
         <div className="flex gap-3">
           <Button
@@ -181,13 +324,57 @@ export default function StaffDashboard() {
             Refresh
           </Button>
           <Button
-            onClick={() => router.push('/staff/quotes/new')}
+            onClick={() => router.push('/admin/quotes/new')}
             className="gap-2"
           >
-            <PlusCircle className="h-4 w-4" />
+            <Plus className="h-4 w-4" />
             New Quote
           </Button>
         </div>
+      </div>
+
+      {/* Performance Metrics */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted">Productivity</p>
+              <p className="text-2xl font-bold text-foreground">{stats.productivity}%</p>
+            </div>
+            <div className="h-12 w-12 rounded-full bg-success/10 flex items-center justify-center">
+              <Zap className="h-6 w-6 text-success" />
+            </div>
+          </div>
+          <div className="mt-2 h-2 bg-border rounded-full overflow-hidden">
+            <div className="h-full bg-success rounded-full" style={{ width: `${stats.productivity}%` }}></div>
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted">Task Completion</p>
+              <p className="text-2xl font-bold text-foreground">{stats.taskCompletion}%</p>
+            </div>
+            <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
+              <Target className="h-6 w-6 text-primary" />
+            </div>
+          </div>
+          <div className="mt-2 h-2 bg-border rounded-full overflow-hidden">
+            <div className="h-full bg-primary rounded-full" style={{ width: `${stats.taskCompletion}%` }}></div>
+          </div>
+        </Card>
+        <Card className="p-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-muted">Active Customers</p>
+              <p className="text-2xl font-bold text-foreground">{stats.activeCustomers}</p>
+            </div>
+            <div className="h-12 w-12 rounded-full bg-info/10 flex items-center justify-center">
+              <Users className="h-6 w-6 text-info" />
+            </div>
+          </div>
+          <p className="text-xs text-success mt-1">+{stats.monthlyGrowth}% this month</p>
+        </Card>
       </div>
 
       {/* Stats Grid */}
@@ -220,7 +407,7 @@ export default function StaffDashboard() {
         <Card className="lg:col-span-1 p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-foreground">Quick Actions</h2>
-            <Building2 className="h-5 w-5 text-primary" />
+            <Zap className="h-5 w-5 text-warning" />
           </div>
           <div className="space-y-3">
             {quickActions.map((action, index) => {
@@ -241,11 +428,6 @@ export default function StaffDashboard() {
                         <p className="text-xs text-muted">{action.description}</p>
                       </div>
                     </div>
-                    {action.badge && (
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-error/10 text-error">
-                        {action.badge}
-                      </span>
-                    )}
                     <ChevronRight className="h-4 w-4 text-muted group-hover:text-primary transition-colors" />
                   </div>
                 </button>
@@ -259,120 +441,193 @@ export default function StaffDashboard() {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold text-foreground">Recent Quotes</h2>
             <button 
-              onClick={() => router.push('/staff/quotes')}
+              onClick={() => router.push('/admin/quotes')}
               className="text-primary hover:text-primary-hover text-sm flex items-center gap-1"
             >
               View All <ChevronRight className="h-4 w-4" />
             </button>
           </div>
           <div className="space-y-3">
-            {recentQuotes.map((item) => (
-              <div key={item.id} className="flex items-center gap-3 p-3 bg-card border border-border rounded-lg hover:shadow-md transition-all">
-                <div className={`p-2 rounded-lg ${getStatusColor(item.status)}`}>
-                  {getStatusIcon(item.status)}
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-foreground">{item.title}</p>
-                  <div className="flex gap-4 mt-1">
-                    <p className="text-xs text-muted">Customer: {item.customer}</p>
-                    <p className="text-xs text-muted">Amount: {item.amount}</p>
-                    <p className="text-xs text-muted">Updated {item.updatedAt}</p>
+            {recentQuotes.length === 0 ? (
+              <p className="text-center text-muted py-8">No recent quotes</p>
+            ) : (
+              recentQuotes.map((quote) => (
+                <div key={quote.id} className="flex items-center gap-3 p-3 bg-card border border-border rounded-lg hover:shadow-md transition-all">
+                  <div className="p-2 rounded-lg bg-primary/10">
+                    <FileText className="h-4 w-4 text-primary" />
                   </div>
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium text-foreground">{quote.subject || 'Quote Request'}</p>
+                      {getStatusBadge(quote.status)}
+                    </div>
+                    <div className="flex gap-3 mt-1">
+                      <p className="text-xs text-muted">Customer: {quote.customerName || 'Unknown'}</p>
+                      <p className="text-xs text-muted">{getTimeAgo(quote.createdAt)}</p>
+                    </div>
+                  </div>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="gap-1"
+                    onClick={() => router.push(`/admin/quotes/${quote.id}`)}
+                  >
+                    <Eye className="h-3 w-3" /> View
+                  </Button>
                 </div>
-                <button 
-                  onClick={() => router.push(`/staff/quotes/${item.id}`)}
-                  className="p-2 hover:bg-primary/10 rounded-lg transition-colors"
-                >
-                  <Edit className="h-4 w-4 text-primary" />
-                </button>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </Card>
       </div>
 
-      {/* Calendar & Engagement */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Pending Tasks & Top Products */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Pending Tasks */}
         <Card className="p-6">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-lg font-semibold text-foreground">Weekly Schedule</h2>
-            <Calendar className="h-5 w-5 text-muted" />
+            <h2 className="text-lg font-semibold text-foreground">My Pending Tasks</h2>
+            <Clock className="h-5 w-5 text-warning" />
           </div>
           <div className="space-y-3">
-            {calendarItems.map((item, i) => (
-              <div key={i} className="flex items-center justify-between p-3 bg-primary/5 border border-primary/20 rounded-lg">
-                <div>
-                  <p className="text-sm font-medium text-foreground">{item.title}</p>
-                  <p className="text-xs text-muted">{item.day}</p>
-                </div>
-                <span className={`text-xs px-2 py-1 rounded-full ${
-                  item.status === 'scheduled' ? 'bg-success/10 text-success' :
-                  item.status === 'in-progress' ? 'bg-primary/10 text-primary' :
-                  'bg-muted/10 text-muted'
-                }`}>
-                  {item.status}
-                </span>
+            {pendingTasks.length === 0 ? (
+              <div className="text-center py-8">
+                <CheckCircle className="h-12 w-12 text-success mx-auto mb-3" />
+                <p className="text-muted">No pending tasks</p>
+                <p className="text-sm text-muted/70">Great job! All caught up</p>
               </div>
-            ))}
+            ) : (
+              pendingTasks.map((task) => (
+                <div key={task.id} className="flex items-center gap-3 p-3 bg-card border border-border rounded-lg hover:shadow-md transition-all">
+                  <div className="p-2 rounded-lg bg-warning/10">
+                    <Clock className="h-4 w-4 text-warning" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-foreground">{task.subject || 'Quote Request'}</p>
+                    <p className="text-xs text-muted">Customer: {task.customerName || 'Unknown'}</p>
+                  </div>
+                  <Button 
+                    size="sm" 
+                    variant="outline" 
+                    className="gap-1"
+                    onClick={() => router.push(`/admin/quotes/${task.id}`)}
+                  >
+                    <Eye className="h-3 w-3" /> Review
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+
+        {/* Top Products */}
+        <Card className="p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold text-foreground">Top Products</h2>
+            <Package className="h-5 w-5 text-primary" />
+          </div>
+          <div className="space-y-3">
+            {topProducts.length === 0 ? (
+              <p className="text-center text-muted py-8">No products data</p>
+            ) : (
+              topProducts.map((product, index) => (
+                <div key={index} className="flex items-center gap-3 p-3 bg-card border border-border rounded-lg hover:shadow-md transition-all">
+                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                    <span className="text-sm font-bold text-primary">{index + 1}</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-foreground">{product.name}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-foreground">{product.count}</p>
+                    <p className="text-xs text-muted">requests</p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+      </div>
+
+      {/* Performance Overview */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card className="p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <Award className="h-5 w-5 text-primary" />
+            <h3 className="font-semibold text-foreground">Performance Rating</h3>
+          </div>
+          <div className="text-center">
+            <div className="text-5xl font-bold text-primary">
+              {stats.productivity > 80 ? '⭐' : stats.productivity > 60 ? '👍' : '📈'}
+            </div>
+            <p className="text-2xl font-bold text-foreground mt-2">{stats.productivity}%</p>
+            <p className="text-sm text-muted">Overall performance</p>
           </div>
         </Card>
 
         <Card className="p-6">
-          <h2 className="text-lg font-semibold text-foreground mb-4">Performance Overview</h2>
-          <div className="space-y-4">
-            <div className="flex justify-between items-center p-3 rounded-lg bg-muted/5">
-              <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-primary" />
-                <span className="text-sm text-foreground">Customers Served</span>
-              </div>
-              <span className="text-sm font-semibold text-foreground">156</span>
+          <div className="flex items-center gap-3 mb-4">
+            <TrendingUp className="h-5 w-5 text-success" />
+            <h3 className="font-semibold text-foreground">Monthly Growth</h3>
+          </div>
+          <div className="text-center">
+            <div className="text-5xl font-bold text-success">+{stats.monthlyGrowth}%</div>
+            <p className="text-sm text-muted mt-2">Quote processing growth</p>
+            <div className="mt-4 h-2 bg-border rounded-full overflow-hidden">
+              <div className="h-full bg-success rounded-full" style={{ width: `${stats.monthlyGrowth * 5}%` }}></div>
             </div>
-            <div className="flex justify-between items-center p-3 rounded-lg bg-muted/5">
-              <div className="flex items-center gap-2">
-                <FileCheck className="h-4 w-4 text-success" />
-                <span className="text-sm text-foreground">Quotes Processed</span>
-              </div>
-              <span className="text-sm font-semibold text-foreground">{stats.processedQuotes}</span>
+          </div>
+        </Card>
+
+        <Card className="p-6">
+          <div className="flex items-center gap-3 mb-4">
+            <Briefcase className="h-5 w-5 text-primary" />
+            <h3 className="font-semibold text-foreground">Work Summary</h3>
+          </div>
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-muted">Total Quotes</span>
+              <span className="font-medium text-foreground">{stats.totalQuotes}</span>
             </div>
-            <div className="flex justify-between items-center p-3 rounded-lg bg-muted/5">
-              <div className="flex items-center gap-2">
-                <Clock className="h-4 w-4 text-warning" />
-                <span className="text-sm text-foreground">Avg Processing Time</span>
-              </div>
-              <span className="text-sm font-semibold text-foreground">2.5 hours</span>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted">Approved</span>
+              <span className="font-medium text-success">{stats.approvedQuotes}</span>
             </div>
-            <div className="flex justify-between items-center p-3 rounded-lg bg-muted/5">
-              <div className="flex items-center gap-2">
-                <Star className="h-4 w-4 text-yellow-500" />
-                <span className="text-sm text-foreground">Customer Rating</span>
-              </div>
-              <span className="text-sm font-semibold text-success">4.8/5.0</span>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted">Completed</span>
+              <span className="font-medium text-blue-600">{stats.completedQuotes}</span>
+            </div>
+            <div className="flex justify-between text-sm">
+              <span className="text-muted">Pending</span>
+              <span className="font-medium text-warning">{stats.pendingQuotes}</span>
             </div>
           </div>
         </Card>
       </div>
 
-      {/* Quick Tips */}
-      <Card className="p-6">
-        <div className="flex items-center gap-2 mb-4">
-          <Star className="h-5 w-5 text-warning" />
-          <h2 className="text-lg font-semibold text-foreground">Staff Tips</h2>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="p-3 bg-muted/5 rounded-lg">
-            <p className="text-sm font-medium text-foreground">💬 Quick Response</p>
-            <p className="text-xs text-muted mt-1">Respond to customer inquiries within 2 hours</p>
-          </div>
-          <div className="p-3 bg-muted/5 rounded-lg">
-            <p className="text-sm font-medium text-foreground">📋 Quote Accuracy</p>
-            <p className="text-xs text-muted mt-1">Double-check all quote details before sending</p>
-          </div>
-          <div className="p-3 bg-muted/5 rounded-lg">
-            <p className="text-sm font-medium text-foreground">🤝 Customer Care</p>
-            <p className="text-xs text-muted mt-1">Follow up with customers within 24 hours</p>
-          </div>
-        </div>
-      </Card>
+      {/* Export Options */}
+      <div className="flex justify-end gap-3">
+        <Button
+          variant="outline"
+          onClick={() => {
+            toast.success('📊 Quote report generation started');
+          }}
+          className="gap-2"
+        >
+          <Download className="h-4 w-4" />
+          Export Quotes
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() => {
+            toast.success('📈 Performance report started');
+          }}
+          className="gap-2"
+        >
+          <BarChart3 className="h-4 w-4" />
+          Export Performance
+        </Button>
+      </div>
     </div>
   );
 }

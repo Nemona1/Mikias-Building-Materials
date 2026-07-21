@@ -1,51 +1,65 @@
+// app/dashboard/page.jsx - Optimized with refresh functionality
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUserRole } from '@/hooks/useUserRole';
 import { 
   Shield, Users, FileText, Eye, Loader2, 
-  Building2, Package, Truck, UserCog 
+  Building2, Package, Truck, UserCog, RefreshCw
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 export default function DashboardRedirect() {
   const router = useRouter();
-  const { user, loading, userRole } = useUserRole();
+  const { user, loading, userRole, refreshUser } = useUserRole();
   const [redirecting, setRedirecting] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    const redirectToRoleDashboard = async () => {
-      // If auth is still loading, wait
-      if (loading) return;
-      
-      // If no user, redirect to home
-      if (!user) {
-        router.replace('/');
-        return;
-      }
-      
-      // Redirect based on role (all users are auto-approved)
-      const roleName = userRole || 'customer';
-      
-      const dashboardMap = {
-        'super_admin': '/dashboard/super-admin',
-        'admin': '/dashboard/admin',
-        'manager': '/dashboard/manager',
-        'staff': '/dashboard/staff',
-        'customer': '/dashboard/customer'
-      };
-      
-      const redirectPath = dashboardMap[roleName] || '/dashboard/customer';
-      console.log('[Dashboard] Redirecting to:', redirectPath, 'for role:', roleName);
-      router.replace(redirectPath);
-      
-      setRedirecting(false);
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refreshUser();
+      toast.success('Dashboard refreshed');
+      // Re-trigger redirect after refresh
+      setRedirecting(true);
+      redirectToRoleDashboard();
+    } catch (error) {
+      toast.error('Failed to refresh');
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshUser]);
+
+  const redirectToRoleDashboard = useCallback(() => {
+    if (loading) return;
+    
+    if (!user) {
+      router.replace('/');
+      return;
+    }
+    
+    const roleName = userRole || 'customer';
+    
+    const dashboardMap = {
+      'super_admin': '/dashboard/super-admin',
+      'admin': '/dashboard/admin',
+      'manager': '/dashboard/manager',
+      'staff': '/dashboard/staff',
+      'customer': '/dashboard/customer'
     };
     
-    redirectToRoleDashboard();
+    const redirectPath = dashboardMap[roleName] || '/dashboard/customer';
+    console.log('[Dashboard] Redirecting to:', redirectPath, 'for role:', roleName);
+    router.replace(redirectPath);
+    setRedirecting(false);
   }, [router, user, loading, userRole]);
 
-  // Role icons mapping for Mikias Building Materials
+  useEffect(() => {
+    redirectToRoleDashboard();
+  }, [redirectToRoleDashboard]);
+
+  // Role icons mapping
   const roleIcons = {
     'super_admin': <Shield className="h-12 w-12 text-purple-500" />,
     'admin': <UserCog className="h-12 w-12 text-red-500" />,
@@ -54,7 +68,6 @@ export default function DashboardRedirect() {
     'customer': <Building2 className="h-12 w-12 text-primary" />,
   };
 
-  // Role display names
   const roleDisplayNames = {
     'super_admin': 'Super Administrator',
     'admin': 'Administrator',
@@ -97,6 +110,16 @@ export default function DashboardRedirect() {
           <div className="flex justify-center">
             <Loader2 className="h-8 w-8 text-primary animate-spin" />
           </div>
+          
+          {/* Refresh Button */}
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="mt-6 inline-flex items-center gap-2 px-4 py-2 text-sm text-primary border border-primary rounded-lg hover:bg-primary/10 transition-all disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
         </div>
       </div>
     );

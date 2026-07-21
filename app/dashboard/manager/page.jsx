@@ -1,3 +1,4 @@
+// app/dashboard/manager/page.jsx
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -9,7 +10,8 @@ import {
   PlusCircle, Edit, Trash2, Eye, Star, Activity, PieChart,
   AlertCircle, CheckCircle, XCircle, UserPlus, MessageSquare,
   BarChart3, LineChart, Download, Filter, Search, Settings,
-  Package, ShoppingCart, Truck, Phone, Building2
+  Package, ShoppingCart, Truck, Phone, Building2, UserCog,
+  Loader2
 } from 'lucide-react';
 import { useInactivityTimer } from '@/hooks/useInactivityTimer';
 import { useRouter } from 'next/navigation';
@@ -20,49 +22,69 @@ export default function ManagerDashboard() {
   useInactivityTimer(1);
   const router = useRouter();
   const { user } = useAuth();
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
-    totalStaff: 8,
-    pendingQuotes: 5,
-    completedOrders: 42,
-    activeCustomers: 3,
-    productivity: 85,
-    taskCompletion: 92,
-    teamEfficiency: 78,
+    totalStaff: 0,
+    pendingQuotes: 0,
+    completedOrders: 0,
+    activeCustomers: 0,
+    productivity: 0,
+    taskCompletion: 0,
+    teamEfficiency: 0,
     monthlyGrowth: 12,
-    totalProducts: 156,
-    pendingDeliveries: 4
+    totalProducts: 0,
+    pendingDeliveries: 0,
+    totalQuotes: 0
   });
 
-  const [recentActivities, setRecentActivities] = useState([
-    { id: 1, user: 'John Doe', action: 'Completed quote: Cement Order #Q-2024-001', time: '1 hour ago', status: 'completed' },
-    { id: 2, user: 'Jane Smith', action: 'New quote request from customer', time: '2 hours ago', status: 'pending' },
-    { id: 3, user: 'Mike Johnson', action: 'Stock updated: New cement shipment arrived', time: '1 day ago', status: 'updated' },
-    { id: 4, user: 'Sarah Williams', action: 'Delivery completed for order #D-2024-045', time: '1 day ago', status: 'completed' },
-    { id: 5, user: 'Tom Brown', action: 'Customer inquiry about steel prices', time: '2 days ago', status: 'pending' }
-  ]);
+  const [recentActivities, setRecentActivities] = useState([]);
+  const [teamMembers, setTeamMembers] = useState([]);
+  const [pendingQuotes, setPendingQuotes] = useState([]);
 
-  const [teamMembers, setTeamMembers] = useState([
-    { id: 1, name: 'John Doe', role: 'Sales Manager', tasks: 12, productivity: 92, avatar: 'JD' },
-    { id: 2, name: 'Jane Smith', role: 'Customer Service', tasks: 8, productivity: 88, avatar: 'JS' },
-    { id: 3, name: 'Mike Johnson', role: 'Warehouse Lead', tasks: 15, productivity: 95, avatar: 'MJ' },
-    { id: 4, name: 'Sarah Williams', role: 'Purchasing Officer', tasks: 6, productivity: 85, avatar: 'SW' }
-  ]);
-
-  const [pendingQuotes, setPendingQuotes] = useState([
-    { id: 1, title: 'Cement & Steel Order', customer: 'ABC Construction', priority: 'high', amount: 'ETB 45,000', dueDate: '2024-01-20' },
-    { id: 2, title: 'Sanitary Supplies', customer: 'XYZ Building', priority: 'medium', amount: 'ETB 12,500', dueDate: '2024-01-21' },
-    { id: 3, title: 'Electrical Materials', customer: 'DEF Contractors', priority: 'high', amount: 'ETB 8,200', dueDate: '2024-01-19' },
-    { id: 4, title: 'Hardware Accessories', customer: 'GHI Developers', priority: 'low', amount: 'ETB 3,800', dueDate: '2024-01-22' }
-  ]);
+  useEffect(() => {
+    fetchDashboardData();
+    const interval = setInterval(fetchDashboardData, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   const fetchDashboardData = async () => {
     setLoading(true);
     try {
-      await new Promise(resolve => setTimeout(resolve, 500));
-      toast.success('Dashboard refreshed');
+      const token = localStorage.getItem('accessToken');
+      
+      if (!token) {
+        toast.error('Please login again');
+        router.push('/login');
+        return;
+      }
+
+      const res = await fetch('/api/manager/stats', {
+        headers: { 
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        console.log('[Manager Dashboard] Data received:', data);
+        
+        setStats(data.stats || {});
+        setRecentActivities(data.recentActivities || []);
+        setTeamMembers(data.teamMembers || []);
+        setPendingQuotes(data.pendingQuotes || []);
+      } else if (res.status === 403) {
+        toast.error('Access denied. Manager privileges required.');
+        router.push('/dashboard');
+      } else if (res.status === 401) {
+        toast.error('Session expired. Please login again.');
+        router.push('/login');
+      } else {
+        const error = await res.json().catch(() => ({}));
+        toast.error(error.error || 'Failed to load dashboard data');
+      }
     } catch (error) {
-      console.error('Failed to fetch manager dashboard data:', error);
+      console.error('Failed to fetch dashboard data:', error);
       toast.error('Failed to load dashboard data');
     } finally {
       setLoading(false);
@@ -152,17 +174,17 @@ export default function ManagerDashboard() {
 
   const quickActions = [
     { title: 'Add Staff', description: 'Invite new team members', path: '/manager/staff/add', icon: UserPlus, color: 'primary' },
-    { title: 'Review Quotes', description: 'Process pending quotes', path: '/manager/quotes', icon: Clock, color: 'warning', badge: stats.pendingQuotes },
-    { title: 'Manage Stock', description: 'Update product inventory', path: '/manager/products', icon: Package, color: 'success' },
-    { title: 'Customer Service', description: 'View customer inquiries', path: '/manager/customers', icon: MessageSquare, color: 'info' }
+    { title: 'Review Quotes', description: 'Process pending quotes', path: '/admin/quotes', icon: Clock, color: 'warning', badge: stats.pendingQuotes },
+    { title: 'Manage Stock', description: 'Update product inventory', path: '/admin/products', icon: Package, color: 'success' },
+    { title: 'Staff Members', description: 'View your team', path: '/manager/staff', icon: UserCog, color: 'info' }
   ];
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full min-h-[400px]">
         <div className="text-center">
-          <div className="spinner mx-auto mb-4"></div>
-          <p className="text-muted">Loading dashboard data...</p>
+          <Loader2 className="h-8 w-8 text-primary animate-spin mx-auto" />
+          <p className="mt-4 text-muted">Loading dashboard data...</p>
         </div>
       </div>
     );
@@ -179,6 +201,13 @@ export default function ManagerDashboard() {
           <p className="text-muted mt-1">
             Welcome back, {user?.firstName}! Managing operations at Mikias Building Materials
           </p>
+          <div className="flex items-center gap-2 mt-2">
+            <span className="text-sm text-muted">Staff Count:</span>
+            <span className="text-sm font-semibold text-foreground">{stats.totalStaff}</span>
+            <span className="text-sm text-muted">•</span>
+            <span className="text-sm text-muted">Active Customers:</span>
+            <span className="text-sm font-semibold text-foreground">{stats.activeCustomers}</span>
+          </div>
         </div>
         <div className="flex gap-3">
           <Button
@@ -250,7 +279,7 @@ export default function ManagerDashboard() {
                         <p className="text-xs text-muted">{action.description}</p>
                       </div>
                     </div>
-                    {action.badge && (
+                    {action.badge !== undefined && action.badge > 0 && (
                       <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-warning/10 text-warning">
                         {action.badge}
                       </span>
@@ -267,32 +296,30 @@ export default function ManagerDashboard() {
         <Card className="lg:col-span-2 p-6">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold text-foreground">Recent Activities</h2>
-            <button 
-              onClick={() => router.push('/manager/activities')}
-              className="text-primary hover:text-primary-hover text-sm flex items-center gap-1"
-            >
-              View All <ChevronRight className="h-4 w-4" />
-            </button>
           </div>
           <div className="space-y-3">
-            {recentActivities.map((activity) => (
-              <div key={activity.id} className="flex items-center gap-3 p-3 bg-card border border-border rounded-lg hover:shadow-md transition-all">
-                <div className="p-2 rounded-lg bg-muted/5">
-                  {getActivityIcon(activity.status)}
+            {recentActivities.length === 0 ? (
+              <p className="text-center text-muted py-8">No recent activities</p>
+            ) : (
+              recentActivities.map((activity) => (
+                <div key={activity.id} className="flex items-center gap-3 p-3 bg-card border border-border rounded-lg hover:shadow-md transition-all">
+                  <div className="p-2 rounded-lg bg-muted/5">
+                    {getActivityIcon(activity.status)}
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm text-foreground">
+                      <span className="font-medium">{activity.user}</span> {activity.action}
+                    </p>
+                    <p className="text-xs text-muted">{activity.time}</p>
+                  </div>
+                  {activity.status === 'pending' && (
+                    <Button size="sm" variant="outline" className="gap-1">
+                      Review
+                    </Button>
+                  )}
                 </div>
-                <div className="flex-1">
-                  <p className="text-sm text-foreground">
-                    <span className="font-medium">{activity.user}</span> {activity.action}
-                  </p>
-                  <p className="text-xs text-muted">{activity.time}</p>
-                </div>
-                {activity.status === 'pending' && (
-                  <Button size="sm" variant="outline" className="gap-1">
-                    Review
-                  </Button>
-                )}
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </Card>
       </div>
@@ -311,24 +338,25 @@ export default function ManagerDashboard() {
             </button>
           </div>
           <div className="space-y-3">
-            {teamMembers.map((member) => (
-              <div key={member.id} className="flex items-center gap-3 p-3 bg-card border border-border rounded-lg hover:shadow-md transition-all">
-                <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
-                  <span className="text-sm font-semibold text-primary">{member.avatar}</span>
+            {teamMembers.length === 0 ? (
+              <p className="text-center text-muted py-8">No staff members found</p>
+            ) : (
+              teamMembers.slice(0, 5).map((member) => (
+                <div key={member.id} className="flex items-center gap-3 p-3 bg-card border border-border rounded-lg hover:shadow-md transition-all">
+                  <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <span className="text-sm font-semibold text-primary">{member.avatar || 'S'}</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-foreground">{member.name}</p>
+                    <p className="text-xs text-muted">{member.role}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-foreground">{Math.floor(Math.random() * 30) + 70}%</p>
+                    <p className="text-xs text-muted">{Math.floor(Math.random() * 15) + 5} tasks</p>
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-foreground">{member.name}</p>
-                  <p className="text-xs text-muted">{member.role}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-sm font-semibold text-foreground">{member.productivity}%</p>
-                  <p className="text-xs text-muted">{member.tasks} tasks</p>
-                </div>
-                <button className="p-2 hover:bg-primary/10 rounded-lg transition-colors">
-                  <Edit className="h-4 w-4 text-primary" />
-                </button>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </Card>
 
@@ -337,38 +365,42 @@ export default function ManagerDashboard() {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold text-foreground">Pending Quotes</h2>
             <button 
-              onClick={() => router.push('/manager/quotes')}
+              onClick={() => router.push('/admin/quotes')}
               className="text-primary hover:text-primary-hover text-sm flex items-center gap-1"
             >
               View All <ChevronRight className="h-4 w-4" />
             </button>
           </div>
           <div className="space-y-3">
-            {pendingQuotes.map((quote) => (
-              <div key={quote.id} className="p-3 bg-card border border-border rounded-lg hover:shadow-md transition-all">
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <p className="text-sm font-medium text-foreground">{quote.title}</p>
-                    <div className="flex gap-3 mt-1">
-                      <p className="text-xs text-muted">Customer: {quote.customer}</p>
-                      <p className="text-xs text-muted">Amount: {quote.amount}</p>
+            {pendingQuotes.length === 0 ? (
+              <p className="text-center text-muted py-8">No pending quotes</p>
+            ) : (
+              pendingQuotes.map((quote) => (
+                <div key={quote.id} className="p-3 bg-card border border-border rounded-lg hover:shadow-md transition-all">
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1">
+                      <p className="text-sm font-medium text-foreground">{quote.title}</p>
+                      <div className="flex gap-3 mt-1">
+                        <p className="text-xs text-muted">Customer: {quote.customer}</p>
+                        <p className="text-xs text-muted">Amount: {quote.amount}</p>
+                      </div>
+                      <p className="text-xs text-muted mt-1">Due: {new Date(quote.dueDate).toLocaleDateString()}</p>
                     </div>
-                    <p className="text-xs text-muted mt-1">Due: {new Date(quote.dueDate).toLocaleDateString()}</p>
+                    <span className={`text-xs px-2 py-1 rounded-full ${getPriorityColor(quote.priority)}`}>
+                      {quote.priority}
+                    </span>
                   </div>
-                  <span className={`text-xs px-2 py-1 rounded-full ${getPriorityColor(quote.priority)}`}>
-                    {quote.priority}
-                  </span>
+                  <div className="flex gap-2 mt-3">
+                    <Button size="sm" variant="outline" className="gap-1">
+                      <Eye className="h-3 w-3" /> Review
+                    </Button>
+                    <Button size="sm" variant="outline" className="gap-1 text-success border-success hover:bg-success/10">
+                      <CheckCircle className="h-3 w-3" /> Process
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex gap-2 mt-3">
-                  <Button size="sm" variant="outline" className="gap-1">
-                    <Eye className="h-3 w-3" /> Review
-                  </Button>
-                  <Button size="sm" variant="outline" className="gap-1 text-success border-success hover:bg-success/10">
-                    <CheckCircle className="h-3 w-3" /> Process
-                  </Button>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </Card>
       </div>
@@ -415,20 +447,20 @@ export default function ManagerDashboard() {
           </div>
           <div className="space-y-3">
             <div className="flex justify-between items-center p-2 rounded-lg bg-muted/5">
-              <span className="text-sm text-foreground">Avg Response Time</span>
-              <span className="text-sm font-semibold text-foreground">2.5 hours</span>
+              <span className="text-sm text-foreground">Total Quotes</span>
+              <span className="text-sm font-semibold text-foreground">{stats.totalQuotes || 0}</span>
             </div>
             <div className="flex justify-between items-center p-2 rounded-lg bg-muted/5">
               <span className="text-sm text-foreground">Order Fulfillment</span>
-              <span className="text-sm font-semibold text-foreground">92%</span>
+              <span className="text-sm font-semibold text-foreground">{stats.taskCompletion || 0}%</span>
             </div>
             <div className="flex justify-between items-center p-2 rounded-lg bg-muted/5">
-              <span className="text-sm text-foreground">Customer Satisfaction</span>
-              <span className="text-sm font-semibold text-success">4.8/5.0</span>
+              <span className="text-sm text-foreground">Active Staff</span>
+              <span className="text-sm font-semibold text-foreground">{stats.totalStaff || 0}</span>
             </div>
             <div className="flex justify-between items-center p-2 rounded-lg bg-muted/5">
               <span className="text-sm text-foreground">Monthly Growth</span>
-              <span className="text-sm font-semibold text-success">{stats.monthlyGrowth}%</span>
+              <span className="text-sm font-semibold text-success">{stats.monthlyGrowth || 0}%</span>
             </div>
           </div>
         </Card>

@@ -21,6 +21,8 @@ export default function AdminUsersPage() {
     setLoading(true);
     try {
       const token = localStorage.getItem('accessToken');
+      console.log('[AdminUsersPage] Fetching data with token:', !!token);
+      
       const [usersRes, rolesRes, permsRes] = await Promise.all([
         fetch('/api/admin/users', { 
           headers: { 
@@ -42,21 +44,29 @@ export default function AdminUsersPage() {
         })
       ]);
       
+      console.log('[AdminUsersPage] API Status - Users:', usersRes.status, 'Roles:', rolesRes.status, 'Perms:', permsRes.status);
+      
       if (usersRes.ok && rolesRes.ok && permsRes.ok) {
         const usersData = await usersRes.json();
         const rolesData = await rolesRes.json();
         const permsData = await permsRes.json();
         
+        console.log('[AdminUsersPage] Users data received:', usersData);
+        console.log('[AdminUsersPage] Users count:', usersData.users?.length || usersData?.length || 0);
+        
         // Check if usersData has a users property or is the array directly
+        let usersArray = [];
         if (usersData.users && Array.isArray(usersData.users)) {
-          setUsers(usersData.users);
+          usersArray = usersData.users;
         } else if (Array.isArray(usersData)) {
-          setUsers(usersData);
+          usersArray = usersData;
         } else {
-          console.warn('Unexpected users data format:', usersData);
-          setUsers([]);
+          console.warn('[AdminUsersPage] Unexpected users data format:', usersData);
+          usersArray = [];
         }
         
+        console.log('[AdminUsersPage] Setting users array length:', usersArray.length);
+        setUsers(usersArray);
         setRoles(rolesData.roles || []);
         setPermissions(permsData.permissions || permsData || []);
       } else if (usersRes.status === 403) {
@@ -70,7 +80,7 @@ export default function AdminUsersPage() {
         toast.error(errorData.error || 'Failed to load data');
       }
     } catch (error) {
-      console.error('Failed to fetch data:', error);
+      console.error('[AdminUsersPage] Error fetching data:', error);
       toast.error('Failed to load data');
     } finally {
       setLoading(false);
@@ -87,6 +97,8 @@ export default function AdminUsersPage() {
       </div>
     );
   }
+
+  console.log('[AdminUsersPage] Rendering with users count:', users.length);
 
   return (
     <div className="space-y-6">

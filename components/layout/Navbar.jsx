@@ -1,7 +1,7 @@
-// components/layout/Navbar.jsx - Enhanced version
+// components/layout/Navbar.jsx - Optimized with proper navigation
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { 
@@ -13,7 +13,6 @@ import ThemeToggle from '@/components/ui/ThemeToggle';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/hooks/useAuth';
 
-// Role display names and icons
 const roleDisplay = {
   'super_admin': { label: 'Super Admin', icon: Crown, color: 'text-purple-600' },
   'admin': { label: 'Administrator', icon: Shield, color: 'text-red-600' },
@@ -22,7 +21,6 @@ const roleDisplay = {
   'customer': { label: 'Customer', icon: User, color: 'text-primary' }
 };
 
-// Dashboard links by role
 const dashboardLinks = {
   'super_admin': '/dashboard/super-admin',
   'admin': '/dashboard/admin',
@@ -31,6 +29,11 @@ const dashboardLinks = {
   'customer': '/dashboard/customer'
 };
 
+// Cache site name
+let cachedSiteName = null;
+let siteNameCacheTime = 0;
+const CACHE_TTL = 60000; // 1 minute
+
 export default function Navbar() {
   const router = useRouter();
   const { user, isLoading, logout } = useAuth();
@@ -38,64 +41,63 @@ export default function Navbar() {
   const [siteName, setSiteName] = useState('Mikias Building Materials');
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const dropdownRef = useRef(null);
+  const fetchInProgress = useRef(false);
 
   useEffect(() => {
     const fetchSiteName = async () => {
+      // Use cached value if available and fresh
+      if (cachedSiteName && Date.now() - siteNameCacheTime < CACHE_TTL) {
+        setSiteName(cachedSiteName);
+        setSettingsLoaded(true);
+        return;
+      }
+
+      // Prevent multiple simultaneous fetches
+      if (fetchInProgress.current) return;
+      fetchInProgress.current = true;
+
       try {
-        // First try to get from API if authenticated
         const token = localStorage.getItem('accessToken');
         
         if (token) {
           try {
             const res = await fetch('/api/admin/settings?category=general', {
-              headers: {
-                'Authorization': `Bearer ${token}`
-              }
+              headers: { 'Authorization': `Bearer ${token}` }
             });
             
             if (res.ok) {
               const data = await res.json();
               if (data.settings?.siteName) {
-                setSiteName(data.settings.siteName);
+                cachedSiteName = data.settings.siteName;
+                siteNameCacheTime = Date.now();
+                setSiteName(cachedSiteName);
                 setSettingsLoaded(true);
+                fetchInProgress.current = false;
                 return;
               }
             }
           } catch (apiError) {
-            console.warn('[Navbar] Failed to fetch settings via API:', apiError);
+            // Silently fail, use fallback
           }
         }
         
-        // Fallback: try to get from localStorage
-        const cachedSettings = localStorage.getItem('siteSettings');
-        if (cachedSettings) {
-          try {
-            const settings = JSON.parse(cachedSettings);
-            if (settings.siteName) {
-              setSiteName(settings.siteName);
-              setSettingsLoaded(true);
-              return;
-            }
-          } catch (e) {
-            // Ignore parse errors
-          }
-        }
-        
-        // Default fallback
-        setSiteName('Mikias Building Materials');
+        // Fallback to cached or default
+        const fallbackName = cachedSiteName || 'Mikias Building Materials';
+        setSiteName(fallbackName);
         setSettingsLoaded(true);
         
       } catch (error) {
-        console.error('[Navbar] Error fetching site name:', error);
         setSiteName('Mikias Building Materials');
         setSettingsLoaded(true);
+      } finally {
+        fetchInProgress.current = false;
       }
     };
     
     fetchSiteName();
   }, []);
 
-  // Handle click outside to close dropdown
+  // Click outside handler
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -104,12 +106,10 @@ export default function Navbar() {
     };
 
     document.addEventListener('mousedown', handleClickOutside);
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Close dropdown on Escape key
+  // Escape key handler
   useEffect(() => {
     const handleEscKey = (event) => {
       if (event.key === 'Escape' && showDropdown) {
@@ -118,16 +118,32 @@ export default function Navbar() {
     };
 
     document.addEventListener('keydown', handleEscKey);
-    return () => {
-      document.removeEventListener('keydown', handleEscKey);
-    };
+    return () => document.removeEventListener('keydown', handleEscKey);
   }, [showDropdown]);
 
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     setShowDropdown(false);
     await logout();
     toast.success('Logged out successfully');
-  };
+  }, [logout]);
+
+  // Handle navigation without page refresh
+  const handleNavigation = useCallback((path) => {
+    setShowDropdown(false);
+    router.push(path);
+  }, [router]);
+
+  // Memoize user info for dropdown
+  const userInfo = useMemo(() => {
+    if (!user) return null;
+    const roleName = user.role?.name || 'customer';
+    return {
+      roleName,
+      roleInfo: roleDisplay[roleName] || roleDisplay['customer'],
+      fullName: `${user?.firstName || ''} ${user?.lastName || ''}`.trim() || 'User',
+      email: user?.email || ''
+    };
+  }, [user]);
 
   // Show loading state
   if (isLoading || !settingsLoaded) {
@@ -146,19 +162,16 @@ export default function Navbar() {
     );
   }
 
-  // Don't show navbar if not authenticated
-  if (!user) {
+  if (!user || !userInfo) {
     return null;
   }
 
-  const roleName = user.role?.name || 'customer';
-  const roleInfo = roleDisplay[roleName] || roleDisplay['customer'];
+  const { roleName, roleInfo, fullName, email } = userInfo;
   const RoleIcon = roleInfo.icon;
 
   return (
     <nav className="bg-card border-b border-border sticky top-0 z-50 transition-all duration-200">
       <div className="px-8 py-4 flex justify-between items-center">
-        {/* Logo / Site Name */}
         <Link href="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
           <div className="h-8 w-8 bg-primary rounded-lg flex items-center justify-center">
             <Building2 className="h-4 w-4 text-white" />
@@ -166,17 +179,14 @@ export default function Navbar() {
           <span className="text-xl font-bold text-foreground">{siteName}</span>
         </Link>
         
-        {/* Right Side Actions */}
         <div className="flex items-center gap-4">
           <ThemeToggle />
           
-          {/* Notifications Bell */}
           <button className="p-2 hover:bg-primary/10 rounded-full transition-colors relative">
             <Bell className="h-5 w-5 text-muted" />
             <span className="absolute top-1 right-1 h-2 w-2 bg-accent rounded-full"></span>
           </button>
           
-          {/* User Dropdown */}
           <div className="relative" ref={dropdownRef}>
             <button
               onClick={() => setShowDropdown(!showDropdown)}
@@ -186,7 +196,7 @@ export default function Navbar() {
                 <RoleIcon className="h-4 w-4 text-primary" />
               </div>
               <span className="text-sm font-medium text-foreground hidden sm:block">
-                {user?.firstName} {user?.lastName}
+                {fullName}
               </span>
               <span className="text-xs text-muted hidden sm:block">
                 ({roleInfo.label})
@@ -196,51 +206,44 @@ export default function Navbar() {
             
             {showDropdown && (
               <div className="absolute right-0 mt-2 w-64 bg-card rounded-lg shadow-lg border border-border py-2 z-50 animate-in fade-in slide-in-from-top-2 duration-200">
-                {/* User Info */}
                 <div className="px-4 py-3 border-b border-border">
-                  <p className="font-medium text-foreground">{user?.firstName} {user?.lastName}</p>
-                  <p className="text-sm text-muted">{user?.email}</p>
+                  <p className="font-medium text-foreground">{fullName}</p>
+                  <p className="text-sm text-muted">{email}</p>
                   <span className="inline-block mt-1 text-xs px-2 py-0.5 bg-primary/10 text-primary rounded-full">
                     {roleInfo.label}
                   </span>
                 </div>
                 
-                {/* Dashboard Link */}
-                <Link
-                  href={dashboardLinks[roleName] || '/dashboard/customer'}
+                {/* Dashboard Link - Using handleNavigation */}
+                <button
+                  onClick={() => handleNavigation(dashboardLinks[roleName] || '/dashboard/customer')}
                   className="w-full px-4 py-2 text-left text-sm text-foreground hover:bg-primary/10 flex items-center gap-2 transition-colors"
-                  onClick={() => setShowDropdown(false)}
                 >
                   <LayoutDashboard className="h-4 w-4 text-muted" />
                   Dashboard
-                </Link>
+                </button>
                 
-                {/* Profile Link */}
-                <Link
-                  href="/profile"
+                {/* Profile Link - Using handleNavigation */}
+                <button
+                  onClick={() => handleNavigation('/profile')}
                   className="w-full px-4 py-2 text-left text-sm text-foreground hover:bg-primary/10 flex items-center gap-2 transition-colors"
-                  onClick={() => setShowDropdown(false)}
                 >
                   <UserCircle className="h-4 w-4 text-muted" />
                   My Profile
-                </Link>
+                </button>
                 
-                {/* Admin Settings - For super_admin and admin only */}
                 {(roleName === 'super_admin' || roleName === 'admin') && (
-                  <Link
-                    href="/admin/settings"
+                  <button
+                    onClick={() => handleNavigation('/admin/settings')}
                     className="w-full px-4 py-2 text-left text-sm text-foreground hover:bg-primary/10 flex items-center gap-2 transition-colors"
-                    onClick={() => setShowDropdown(false)}
                   >
                     <Settings className="h-4 w-4 text-muted" />
                     Admin Settings
-                  </Link>
+                  </button>
                 )}
                 
-                {/* Divider */}
                 <div className="border-t border-border my-1"></div>
                 
-                {/* Logout Button */}
                 <button
                   onClick={handleLogout}
                   className="w-full px-4 py-2 text-left text-sm text-error hover:bg-error/10 flex items-center gap-2 transition-colors"
