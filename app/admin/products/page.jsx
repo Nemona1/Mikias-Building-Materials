@@ -1,4 +1,4 @@
-// app/admin/products/page.jsx
+// app/admin/products/page.jsx - Updated with View (Eye) icon
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -36,7 +36,7 @@ export default function AdminProductsPage() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'list'
+  const [viewMode, setViewMode] = useState('grid');
   const [selectedCategory, setSelectedCategory] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [categories, setCategories] = useState([]);
@@ -77,12 +77,18 @@ export default function AdminProductsPage() {
         setProducts(data.products || []);
         setPagination(data.pagination || { page: 1, limit: 12, total: 0, totalPages: 0 });
         
-        // Extract unique categories
         const uniqueCategories = [...new Set((data.products || []).map(p => p.category))].filter(Boolean);
         setCategories(uniqueCategories);
       } else if (res.status === 403) {
-        toast.error('Access denied. Admin privileges required.');
-        router.push('/dashboard');
+        const error = await res.json().catch(() => ({}));
+        if (error.error && error.error.includes('Business management access required')) {
+          toast.error('You do not have business management access. Please contact your administrator.');
+        } else if (error.error && error.error.includes('Admin access required')) {
+          toast.error('Admin access required. This section is for administrators only.');
+        } else {
+          toast.error('Access denied. You do not have permission to view products.');
+        }
+        setTimeout(() => router.push('/dashboard'), 2000);
       } else if (res.status === 401) {
         toast.error('Session expired. Please login again.');
         router.push('/login');
@@ -157,7 +163,6 @@ export default function AdminProductsPage() {
     return <CheckCircle className="h-4 w-4 text-green-500" />;
   };
 
-  // Loading state
   if (loading && products.length === 0) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -169,6 +174,22 @@ export default function AdminProductsPage() {
     );
   }
 
+  // Determine role for navigation
+  const getRolePath = () => {
+    // This will be overridden by the wrapper components
+    return '';
+  };
+
+  // Get the base path based on the current route
+  const getBasePath = () => {
+    const path = window.location.pathname;
+    if (path.includes('/manager/')) return '/manager';
+    if (path.includes('/staff/')) return '/staff';
+    return '/admin';
+  };
+
+  const basePath = typeof window !== 'undefined' ? getBasePath() : '/admin';
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -178,8 +199,11 @@ export default function AdminProductsPage() {
           <p className="text-muted mt-1">
             Manage your product catalog, inventory, and pricing
           </p>
+          <p className="text-xs text-muted mt-1">
+            Access: Business Management
+          </p>
         </div>
-        <Link href="/admin/products/new">
+        <Link href={`${basePath}/products/new`}>
           <Button className="gap-2">
             <Plus className="h-4 w-4" />
             Add Product
@@ -333,7 +357,7 @@ export default function AdminProductsPage() {
               : 'Get started by adding your first product'}
           </p>
           {!searchTerm && selectedCategory === 'all' && selectedStatus === 'all' && (
-            <Link href="/admin/products/new">
+            <Link href={`${basePath}/products/new`}>
               <Button className="gap-2">
                 <Plus className="h-4 w-4" />
                 Add Product
@@ -347,7 +371,9 @@ export default function AdminProductsPage() {
             <ProductCard
               key={product.id}
               product={product}
-              onEdit={() => router.push(`/admin/products/${product.id}/edit`)}
+              basePath={basePath}
+              onEdit={() => router.push(`${basePath}/products/${product.id}/edit`)}
+              onView={() => router.push(`${basePath}/products/${product.id}`)}
               onDelete={() => setShowDeleteModal(product)}
               getStatusBadge={getStatusBadge}
               getStockIcon={getStockIcon}
@@ -360,7 +386,9 @@ export default function AdminProductsPage() {
             <ProductListItem
               key={product.id}
               product={product}
-              onEdit={() => router.push(`/admin/products/${product.id}/edit`)}
+              basePath={basePath}
+              onEdit={() => router.push(`${basePath}/products/${product.id}/edit`)}
+              onView={() => router.push(`${basePath}/products/${product.id}`)}
               onDelete={() => setShowDeleteModal(product)}
               getStatusBadge={getStatusBadge}
               getStockIcon={getStockIcon}
@@ -459,8 +487,8 @@ export default function AdminProductsPage() {
   );
 }
 
-// Product Card Component
-function ProductCard({ product, onEdit, onDelete, getStatusBadge, getStockIcon }) {
+// Product Card Component with View icon
+function ProductCard({ product, basePath, onEdit, onView, onDelete, getStatusBadge, getStockIcon }) {
   return (
     <Card className="overflow-hidden hover:shadow-lg transition-all duration-200 group">
       <div className="relative">
@@ -486,6 +514,30 @@ function ProductCard({ product, onEdit, onDelete, getStatusBadge, getStockIcon }
             </span>
           </div>
         )}
+        {/* Hover overlay with actions */}
+        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+          <button
+            onClick={onView}
+            className="p-2.5 bg-white rounded-full hover:bg-primary hover:text-white transition-colors shadow-lg"
+            title="View Product"
+          >
+            <Eye className="h-5 w-5" />
+          </button>
+          <button
+            onClick={onEdit}
+            className="p-2.5 bg-white rounded-full hover:bg-primary hover:text-white transition-colors shadow-lg"
+            title="Edit Product"
+          >
+            <Edit className="h-5 w-5" />
+          </button>
+          <button
+            onClick={onDelete}
+            className="p-2.5 bg-white rounded-full hover:bg-red-500 hover:text-white transition-colors shadow-lg"
+            title="Delete Product"
+          >
+            <Trash2 className="h-5 w-5" />
+          </button>
+        </div>
       </div>
       <div className="p-4">
         <div className="flex items-start justify-between mb-2">
@@ -503,18 +555,13 @@ function ProductCard({ product, onEdit, onDelete, getStatusBadge, getStockIcon }
             <p className="text-xs text-muted">{product.category}</p>
           </div>
           <div className="flex items-center gap-1">
-            <button
-              onClick={onEdit}
-              className="p-1.5 rounded-lg hover:bg-primary/10 transition-colors"
-              title="Edit Product"
-            >
+            <Link href={`${basePath}/products/${product.id}`} className="p-1.5 rounded-lg hover:bg-primary/10 transition-colors" title="View Product">
+              <Eye className="h-4 w-4 text-muted hover:text-primary" />
+            </Link>
+            <Link href={`${basePath}/products/${product.id}/edit`} className="p-1.5 rounded-lg hover:bg-primary/10 transition-colors" title="Edit Product">
               <Edit className="h-4 w-4 text-muted hover:text-primary" />
-            </button>
-            <button
-              onClick={onDelete}
-              className="p-1.5 rounded-lg hover:bg-red-500/10 transition-colors"
-              title="Delete Product"
-            >
+            </Link>
+            <button onClick={onDelete} className="p-1.5 rounded-lg hover:bg-red-500/10 transition-colors" title="Delete Product">
               <Trash2 className="h-4 w-4 text-muted hover:text-red-500" />
             </button>
           </div>
@@ -524,8 +571,8 @@ function ProductCard({ product, onEdit, onDelete, getStatusBadge, getStockIcon }
   );
 }
 
-// Product List Item Component
-function ProductListItem({ product, onEdit, onDelete, getStatusBadge, getStockIcon }) {
+// Product List Item Component with View icon
+function ProductListItem({ product, basePath, onEdit, onView, onDelete, getStatusBadge, getStockIcon }) {
   return (
     <Card className="p-4 hover:shadow-md transition-all duration-200">
       <div className="flex items-center gap-4">
@@ -565,18 +612,13 @@ function ProductListItem({ product, onEdit, onDelete, getStatusBadge, getStockIc
           </div>
           {getStatusBadge(product)}
           <div className="flex items-center gap-1 ml-2">
-            <button
-              onClick={onEdit}
-              className="p-1.5 rounded-lg hover:bg-primary/10 transition-colors"
-              title="Edit Product"
-            >
+            <Link href={`${basePath}/products/${product.id}`} className="p-1.5 rounded-lg hover:bg-primary/10 transition-colors" title="View Product">
+              <Eye className="h-4 w-4 text-muted hover:text-primary" />
+            </Link>
+            <Link href={`${basePath}/products/${product.id}/edit`} className="p-1.5 rounded-lg hover:bg-primary/10 transition-colors" title="Edit Product">
               <Edit className="h-4 w-4 text-muted hover:text-primary" />
-            </button>
-            <button
-              onClick={onDelete}
-              className="p-1.5 rounded-lg hover:bg-red-500/10 transition-colors"
-              title="Delete Product"
-            >
+            </Link>
+            <button onClick={onDelete} className="p-1.5 rounded-lg hover:bg-red-500/10 transition-colors" title="Delete Product">
               <Trash2 className="h-4 w-4 text-muted hover:text-red-500" />
             </button>
           </div>

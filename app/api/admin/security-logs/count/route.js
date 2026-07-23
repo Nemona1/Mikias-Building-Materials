@@ -1,7 +1,8 @@
+// app/api/admin/security-logs/count/route.js - Fixed
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAccessToken } from '@/lib/auth/jwt';
-import { hasPermission, hasAdminAccess } from '@/lib/auth/permissions';
+import { hasAdminAccess } from '@/lib/auth/permissions';
 
 export async function GET(request) {
   try {
@@ -19,16 +20,10 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
     
-    // Check if user has admin access
+    // Check if user has admin access (super_admin or admin)
     const isAdmin = await hasAdminAccess(decoded.userId);
     if (!isAdmin) {
       return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
-    }
-    
-    // Check specific permission for viewing security logs
-    const hasAuditAccess = await hasPermission(decoded.userId, 'audit:read');
-    if (!hasAuditAccess) {
-      return NextResponse.json({ error: 'Forbidden - Insufficient permissions' }, { status: 403 });
     }
     
     const { searchParams } = new URL(request.url);

@@ -1,8 +1,8 @@
-// app/api/admin/quotes/[id]/route.js
+// app/api/admin/quotes/[id]/route.js - Updated with hasBusinessAccess
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAccessToken } from '@/lib/auth/jwt';
-import { hasAdminAccess } from '@/lib/auth/permissions';
+import { hasBusinessAccess } from '@/lib/auth/permissions'; // Changed
 import { logSecurityEvent, SecurityActions } from '@/lib/security-log';
 
 // GET - Get single quote
@@ -24,9 +24,9 @@ export async function GET(request, { params }) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const isAdmin = await hasAdminAccess(decoded.userId);
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
+    const hasAccess = await hasBusinessAccess(decoded.userId);
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Forbidden - Business management access required' }, { status: 403 });
     }
 
     const quote = await prisma.quoteRequest.findUnique({
@@ -73,7 +73,7 @@ export async function GET(request, { params }) {
   }
 }
 
-// PUT - Update quote
+// PUT - Update quote (same changes)
 export async function PUT(request, { params }) {
   try {
     const { id } = await params;
@@ -92,9 +92,9 @@ export async function PUT(request, { params }) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const isAdmin = await hasAdminAccess(decoded.userId);
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
+    const hasAccess = await hasBusinessAccess(decoded.userId);
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Forbidden - Business management access required' }, { status: 403 });
     }
 
     const data = await request.json();
@@ -107,7 +107,6 @@ export async function PUT(request, { params }) {
       return NextResponse.json({ error: 'Quote not found' }, { status: 404 });
     }
 
-    // Update quote
     const quote = await prisma.quoteRequest.update({
       where: { id },
       data: {
@@ -196,9 +195,9 @@ export async function DELETE(request, { params }) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const isAdmin = await hasAdminAccess(decoded.userId);
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
+    const hasAccess = await hasBusinessAccess(decoded.userId);
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Forbidden - Business management access required' }, { status: 403 });
     }
 
     const quote = await prisma.quoteRequest.findUnique({
@@ -209,7 +208,6 @@ export async function DELETE(request, { params }) {
       return NextResponse.json({ error: 'Quote not found' }, { status: 404 });
     }
 
-    // Delete quote items first (cascade will handle this)
     await prisma.quoteItem.deleteMany({
       where: { quoteRequestId: id }
     });

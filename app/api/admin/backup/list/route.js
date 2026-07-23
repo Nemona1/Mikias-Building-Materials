@@ -1,6 +1,7 @@
+// app/api/admin/backup/list/route.js - Complete fixed version
 import { NextResponse } from 'next/server';
 import { verifyAccessToken } from '@/lib/auth/jwt';
-import { hasPermission } from '@/lib/auth/permissions';
+import { hasAdminAccess } from '@/lib/auth/permissions';
 import { logSecurityEvent, SecurityActions } from '@/lib/security-log';
 import fs from 'fs';
 import path from 'path';
@@ -23,15 +24,14 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
     
-    const hasAdminAccess = await hasPermission(decoded.userId, 'admin:access');
-    if (!hasAdminAccess) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const isAdmin = await hasAdminAccess(decoded.userId);
+    if (!isAdmin) {
+      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
     }
     
     const ipAddress = request.headers.get('x-forwarded-for') || 'unknown';
     const userAgent = request.headers.get('user-agent') || 'unknown';
     
-    // Log backup list access
     await logSecurityEvent({
       userId: decoded.userId,
       action: SecurityActions.BACKUP_ACCESSED,

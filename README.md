@@ -377,4 +377,43 @@ v1.0.0
 
 ✅ Admin dashboard
 
+
+
+Access Control Summary
+Role	Business Management (Products, Quotes, Customers, Reports)	System Admin (Users, Roles, Permissions, Settings)	Staff Management
+Super Admin	✅ Full Access	✅ Full Access	✅ Full Access
+Admin	✅ Full Access	✅ Full Access	✅ Full Access
+Manager	✅ Full Access	❌ No Access	✅ Full Access
+Staff	✅ Full Access	❌ No Access	❌ No Access
+Customer	❌ No Access	❌ No Access	❌ No Access
+Key Changes
+Staff now has access to:
+
+Products management (/admin/products)
+
+Quotes management (/admin/quotes)
+
+But NOT customers or reports (only staff dashboard)
+
+Manager now has access to:
+
+All Business Management routes (products, quotes, customers, reports)
+
+Staff Management routes
+
+But NOT System Administration routes (users, roles, permissions, settings)
+
+Admin has access to:
+
+All System Administration routes
+
+All Business Management routes
+
+Super Admin has access to:
+
+Everything
+
+This response is AI-generated, for reference only.
+
+
 Built with ❤️ for Mikias Building Materials

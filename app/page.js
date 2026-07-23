@@ -1,4 +1,4 @@
-// app/page.js - Optimized with performance improvements
+// app/page.js - Optimized with performance improvements and public settings API
 'use client';
 
 import { useEffect, useState, Suspense, useMemo, useCallback } from 'react';
@@ -76,10 +76,65 @@ const CONTACT_INFO = {
   hours: 'Mon - Sat: 8:00 AM - 6:00 PM'
 };
 
+// Cache for site settings
+let cachedSettings = null;
+let settingsCacheTime = 0;
+const SETTINGS_CACHE_TTL = 60000; // 1 minute
+
 // Landing Page Content - Optimized with useMemo
 function LandingPageContent() {
-  const [siteDescription] = useState('Quality Building Materials, Hardware, Sanitary & Electrical Supplies');
-  const [siteName] = useState('Mikias Ayele Building Materials & Electrical');
+  const [siteDescription, setSiteDescription] = useState('Quality Building Materials, Hardware, Sanitary & Electrical Supplies');
+  const [siteName, setSiteName] = useState('Mikias Ayele Building Materials & Electrical');
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+
+  // Fetch site settings from public API
+  useEffect(() => {
+    const fetchSettings = async () => {
+      // Use cached value if available and fresh
+      if (cachedSettings && Date.now() - settingsCacheTime < SETTINGS_CACHE_TTL) {
+        if (cachedSettings.siteName) setSiteName(cachedSettings.siteName);
+        if (cachedSettings.siteDescription) setSiteDescription(cachedSettings.siteDescription);
+        setSettingsLoaded(true);
+        return;
+      }
+
+      try {
+        // Use PUBLIC settings API - no authentication required
+        const res = await fetch('/api/settings?category=general');
+        
+        if (res.ok) {
+          const data = await res.json();
+          const settings = data.settings || [];
+          
+          // Extract settings
+          const siteNameSetting = settings.find(s => s.key === 'siteName');
+          const siteDescSetting = settings.find(s => s.key === 'siteDescription');
+          
+          const newSettings = {};
+          if (siteNameSetting && siteNameSetting.value) {
+            newSettings.siteName = siteNameSetting.value;
+            setSiteName(siteNameSetting.value);
+          }
+          if (siteDescSetting && siteDescSetting.value) {
+            newSettings.siteDescription = siteDescSetting.value;
+            setSiteDescription(siteDescSetting.value);
+          }
+          
+          // Cache the settings
+          cachedSettings = newSettings;
+          settingsCacheTime = Date.now();
+        }
+        
+        setSettingsLoaded(true);
+        
+      } catch (error) {
+        console.error('Failed to fetch site settings:', error);
+        setSettingsLoaded(true);
+      }
+    };
+    
+    fetchSettings();
+  }, []);
 
   // Memoize features with useMemo
   const features = useMemo(() => FEATURES_DATA, []);
@@ -124,6 +179,18 @@ function LandingPageContent() {
       );
     });
   }, [stats]);
+
+  // Show loading state for settings
+  if (!settingsLoaded) {
+    return (
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <div className="spinner mx-auto h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          <p className="mt-4 text-muted">Loading...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>

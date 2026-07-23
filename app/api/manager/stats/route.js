@@ -1,4 +1,4 @@
-// app/api/manager/stats/route.js
+// app/api/manager/stats/route.js - Updated with customer count
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAccessToken } from '@/lib/auth/jwt';
@@ -47,13 +47,12 @@ export async function GET(request) {
     });
 
     // IMPORTANT: Manager can ONLY see staff members (role = 'staff')
-    // Not managers, admins, or super admins
     const staffOnly = allUsers.filter(u => {
-        const role = u.role?.name?.toUpperCase() || '';
-        return role === 'STAFF'; // Only staff, not manager, admin, or super_admin
-        });
+      const role = u.role?.name?.toUpperCase() || '';
+      return role === 'STAFF';
+    });
 
-    // Filter customers (for stats)
+    // Filter customers
     const customers = allUsers.filter(u => 
       u.role?.name?.toLowerCase() === 'customer'
     );
@@ -145,6 +144,7 @@ export async function GET(request) {
 
     console.log('[Manager Stats API] Stats calculated:', stats);
     console.log('[Manager Stats API] Staff count:', staffList.length);
+    console.log('[Manager Stats API] Customer count:', totalCustomers);
 
     return NextResponse.json({
       success: true,

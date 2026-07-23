@@ -1,8 +1,8 @@
-// app/api/admin/products/route.js
+// app/api/admin/products/route.js - Updated with hasBusinessAccess
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAccessToken } from '@/lib/auth/jwt';
-import { hasAdminAccess } from '@/lib/auth/permissions';
+import { hasBusinessAccess } from '@/lib/auth/permissions'; // Changed from hasAdminAccess
 import { logSecurityEvent, SecurityActions } from '@/lib/security-log';
 
 // GET - List products with pagination and filtering
@@ -30,9 +30,9 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const isAdmin = await hasAdminAccess(decoded.userId);
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
+    const hasAccess = await hasBusinessAccess(decoded.userId);
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Forbidden - Business management access required' }, { status: 403 });
     }
 
     // Build where clause
@@ -97,7 +97,7 @@ export async function GET(request) {
   }
 }
 
-// POST - Create a new product
+// POST - Create a new product (same changes)
 export async function POST(request) {
   try {
     let token = request.headers.get('authorization')?.replace('Bearer ', '');
@@ -114,14 +114,14 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const isAdmin = await hasAdminAccess(decoded.userId);
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
+    const hasAccess = await hasBusinessAccess(decoded.userId);
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Forbidden - Business management access required' }, { status: 403 });
     }
 
+    // ... rest of POST function remains the same
     const data = await request.json();
     
-    // Validate required fields
     if (!data.name || !data.category) {
       return NextResponse.json(
         { error: 'Name and category are required' },
@@ -129,7 +129,6 @@ export async function POST(request) {
       );
     }
 
-    // Generate slug if not provided
     if (!data.slug) {
       data.slug = data.name
         .toLowerCase()
@@ -139,7 +138,6 @@ export async function POST(request) {
         .replace(/^-+|-+$/g, '');
     }
 
-    // Check if slug already exists
     const existingProduct = await prisma.product.findUnique({
       where: { slug: data.slug }
     });
@@ -151,7 +149,6 @@ export async function POST(request) {
       );
     }
 
-    // Match schema field names exactly
     const product = await prisma.product.create({
       data: {
         name: data.name,

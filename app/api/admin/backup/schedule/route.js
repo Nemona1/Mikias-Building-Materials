@@ -1,12 +1,10 @@
+// app/api/admin/backup/schedule/route.js - Complete fixed version
 import { NextResponse } from 'next/server';
 import { verifyAccessToken } from '@/lib/auth/jwt';
-import { hasPermission } from '@/lib/auth/permissions';
+import { hasAdminAccess } from '@/lib/auth/permissions';
 import fs from 'fs';
 import path from 'path';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 
-const execAsync = promisify(exec);
 const SCHEDULE_FILE = path.join(process.cwd(), 'backup-schedule.json');
 
 export async function GET(request) {
@@ -25,9 +23,9 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
     
-    const hasAdminAccess = await hasPermission(decoded.userId, 'admin:access');
-    if (!hasAdminAccess) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const isAdmin = await hasAdminAccess(decoded.userId);
+    if (!isAdmin) {
+      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
     }
     
     let schedule = { enabled: false, frequency: 'daily', time: '00:00', lastRun: null };
@@ -65,9 +63,9 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
     
-    const hasAdminAccess = await hasPermission(decoded.userId, 'admin:access');
-    if (!hasAdminAccess) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const isAdmin = await hasAdminAccess(decoded.userId);
+    if (!isAdmin) {
+      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
     }
     
     const schedule = {
@@ -79,13 +77,6 @@ export async function POST(request) {
     };
     
     fs.writeFileSync(SCHEDULE_FILE, JSON.stringify(schedule, null, 2));
-    
-    // Update cron job (if using node-cron)
-    if (enabled) {
-      await updateCronJob(frequency, time);
-    } else {
-      await disableCronJob();
-    }
     
     return NextResponse.json({
       success: true,
@@ -100,14 +91,4 @@ export async function POST(request) {
       { status: 500 }
     );
   }
-}
-
-async function updateCronJob(frequency, time) {
-  // This would integrate with your job scheduler
-  // For now, just log
-  console.log(`Scheduled backup at ${time} ${frequency}`);
-}
-
-async function disableCronJob() {
-  console.log('Disabled scheduled backups');
 }

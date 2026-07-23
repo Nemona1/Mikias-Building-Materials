@@ -1,7 +1,8 @@
+// app/api/admin/security-logs/route.js - Fixed with proper admin access
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAccessToken } from '@/lib/auth/jwt';
-import { hasPermission, hasAdminAccess } from '@/lib/auth/permissions';
+import { hasAdminAccess } from '@/lib/auth/permissions';
 import { logSecurityEvent, SecurityActions } from '@/lib/security-log';
 
 export async function GET(request) {
@@ -20,16 +21,10 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
     
-    // Check if user has admin access
+    // Check if user has admin access (super_admin or admin)
     const isAdmin = await hasAdminAccess(decoded.userId);
     if (!isAdmin) {
       return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
-    }
-    
-    // Check specific permission for viewing security logs
-    const hasAuditAccess = await hasPermission(decoded.userId, 'audit:read');
-    if (!hasAuditAccess) {
-      return NextResponse.json({ error: 'Forbidden - Insufficient permissions' }, { status: 403 });
     }
     
     const ipAddress = request.headers.get('x-forwarded-for') || 'unknown';

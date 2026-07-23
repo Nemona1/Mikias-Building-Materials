@@ -1,4 +1,4 @@
-// components/layout/Navbar.jsx - Optimized with proper navigation
+// components/layout/Navbar.jsx - Updated to use public settings API
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -57,37 +57,31 @@ export default function Navbar() {
       fetchInProgress.current = true;
 
       try {
-        const token = localStorage.getItem('accessToken');
+        // Use PUBLIC settings API - no authentication required
+        const res = await fetch('/api/settings?category=general');
         
-        if (token) {
-          try {
-            const res = await fetch('/api/admin/settings?category=general', {
-              headers: { 'Authorization': `Bearer ${token}` }
-            });
-            
-            if (res.ok) {
-              const data = await res.json();
-              if (data.settings?.siteName) {
-                cachedSiteName = data.settings.siteName;
-                siteNameCacheTime = Date.now();
-                setSiteName(cachedSiteName);
-                setSettingsLoaded(true);
-                fetchInProgress.current = false;
-                return;
-              }
-            }
-          } catch (apiError) {
-            // Silently fail, use fallback
+        if (res.ok) {
+          const data = await res.json();
+          const settings = data.settings || [];
+          
+          // Find site name in settings
+          const siteNameSetting = settings.find(s => s.key === 'siteName');
+          if (siteNameSetting && siteNameSetting.value) {
+            cachedSiteName = siteNameSetting.value;
+            siteNameCacheTime = Date.now();
+            setSiteName(cachedSiteName);
           }
+        } else {
+          // Fallback to cached or default
+          const fallbackName = cachedSiteName || 'Mikias Building Materials';
+          setSiteName(fallbackName);
         }
         
-        // Fallback to cached or default
-        const fallbackName = cachedSiteName || 'Mikias Building Materials';
-        setSiteName(fallbackName);
         setSettingsLoaded(true);
         
       } catch (error) {
-        setSiteName('Mikias Building Materials');
+        // Silently fail, use fallback
+        setSiteName(cachedSiteName || 'Mikias Building Materials');
         setSettingsLoaded(true);
       } finally {
         fetchInProgress.current = false;
@@ -97,6 +91,7 @@ export default function Navbar() {
     fetchSiteName();
   }, []);
 
+  // ... rest of the component remains the same ...
   // Click outside handler
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -214,7 +209,7 @@ export default function Navbar() {
                   </span>
                 </div>
                 
-                {/* Dashboard Link - Using handleNavigation */}
+                {/* Dashboard Link */}
                 <button
                   onClick={() => handleNavigation(dashboardLinks[roleName] || '/dashboard/customer')}
                   className="w-full px-4 py-2 text-left text-sm text-foreground hover:bg-primary/10 flex items-center gap-2 transition-colors"
@@ -223,7 +218,7 @@ export default function Navbar() {
                   Dashboard
                 </button>
                 
-                {/* Profile Link - Using handleNavigation */}
+                {/* Profile Link */}
                 <button
                   onClick={() => handleNavigation('/profile')}
                   className="w-full px-4 py-2 text-left text-sm text-foreground hover:bg-primary/10 flex items-center gap-2 transition-colors"
@@ -232,6 +227,7 @@ export default function Navbar() {
                   My Profile
                 </button>
                 
+                {/* Admin Settings - Only for super_admin and admin */}
                 {(roleName === 'super_admin' || roleName === 'admin') && (
                   <button
                     onClick={() => handleNavigation('/admin/settings')}

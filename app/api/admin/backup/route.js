@@ -1,4 +1,4 @@
-// app/api/admin/backup/route.js
+// app/api/admin/backup/route.js - Fixed EISDIR error
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAccessToken } from '@/lib/auth/jwt';
@@ -12,8 +12,38 @@ if (!fs.existsSync(BACKUP_DIR)) {
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
 }
 
-// Store active restore operations
-const activeRestores = new Map();
+// Store active restore operations - export for status route
+export const activeRestores = new Map();
+
+// ============================================
+// CORRECT TABLE ORDER FOR YOUR SCHEMA
+// ============================================
+const TABLE_ORDER = [
+  // System tables (no foreign key dependencies)
+  'permissions',
+  'roles',
+  'system_settings',
+  
+  // User related (depends on roles)
+  'users',
+  'user_roles',
+  'user_permissions',
+  
+  // Session and security (depends on users)
+  'sessions',
+  'security_logs',
+  'trusted_devices',
+  'audit_logs',
+  
+  // Business tables (depends on users and products)
+  'products',
+  'quote_requests',
+  'quote_items',
+  
+  // Notifications (depends on users)
+  'notifications',
+  'system_audit_logs'
+];
 
 export async function GET(request) {
   try {
@@ -35,7 +65,6 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
     
-    // Use hasAdminAccess instead of checking specific permission
     const isAdmin = await hasAdminAccess(decoded.userId);
     if (!isAdmin) {
       return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
@@ -132,7 +161,6 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
     
-    // Use hasAdminAccess instead of checking specific permission
     const isAdmin = await hasAdminAccess(decoded.userId);
     if (!isAdmin) {
       return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
@@ -148,10 +176,8 @@ export async function POST(request) {
         return NextResponse.json({ error: 'Backup file not found' }, { status: 404 });
       }
       
-      // Generate a restore ID to track progress
       const restoreId = `restore_${Date.now()}_${Math.random().toString(36).substring(7)}`;
       
-      // Store the current admin session info to preserve after restore
       const adminUser = await prisma.user.findUnique({
         where: { id: decoded.userId },
         select: { id: true, email: true, firstName: true, lastName: true, passwordHash: true, roleId: true }
@@ -165,7 +191,6 @@ export async function POST(request) {
         userId: decoded.userId
       });
       
-      // Start async restore process
       performAsyncRestore(restoreId, backupFilePath, decoded.userId, adminUser, ipAddress, userAgent);
       
       return NextResponse.json({
@@ -173,15 +198,6 @@ export async function POST(request) {
         restoreId,
         message: 'Restore started. You will be notified when complete.'
       });
-    }
-    
-    if (action === 'restore-status' && fileName) {
-      // Check restore status
-      const restoreId = request.headers.get('x-restore-id');
-      if (restoreId && activeRestores.has(restoreId)) {
-        return NextResponse.json(activeRestores.get(restoreId));
-      }
-      return NextResponse.json({ status: 'not_found' });
     }
     
     if (action === 'delete' && fileName) {
@@ -229,7 +245,6 @@ async function performAsyncRestore(restoreId, backupFilePath, adminUserId, admin
       await restoreDatabase(backupData.database, adminUser);
     }
     
-    // Update restore status to completed
     activeRestores.set(restoreId, {
       status: 'completed',
       completedAt: new Date(),
@@ -248,7 +263,6 @@ async function performAsyncRestore(restoreId, backupFilePath, adminUserId, admin
       success: true
     });
     
-    // Clean up after 5 minutes
     setTimeout(() => {
       activeRestores.delete(restoreId);
     }, 5 * 60 * 1000);
@@ -283,26 +297,12 @@ async function restoreDatabase(databaseBackup, adminUser) {
   
   console.log('[RESTORE] Starting database restore...');
   
-  const tableOrder = [
-    'permissions',
-    'roles',
-    'role_permissions',
-    'users',
-    'user_permissions',
-    'role_applications',
-    'sessions',
-    'security_logs',
-    'trusted_devices'
-  ];
-  
   try {
-    for (const tableName of tableOrder) {
+    for (const tableName of TABLE_ORDER) {
       const tableData = databaseBackup[tableName];
       if (tableData && tableData.length > 0) {
         try {
-          // For users table, preserve the current admin
           if (tableName === 'users') {
-            // Filter out the current admin from deletion
             const nonAdminData = tableData.filter(record => record.id !== adminUser.id);
             
             if (nonAdminData.length > 0) {
@@ -370,11 +370,27 @@ async function insertRecord(tableName, record) {
   }
 }
 
-// Helper Functions
-
+// ============================================
+// CORRECT DATABASE BACKUP - ALL TABLES IN YOUR SCHEMA
+// ============================================
 async function createDatabaseBackup() {
-  const tables = ['users', 'roles', 'permissions', 'role_permissions', 'user_permissions', 
-                  'role_applications', 'sessions', 'security_logs', 'trusted_devices'];
+  const tables = [
+    'permissions',
+    'roles',
+    'system_settings',
+    'users',
+    'user_roles',
+    'user_permissions',
+    'sessions',
+    'security_logs',
+    'trusted_devices',
+    'audit_logs',
+    'products',
+    'quote_requests',
+    'quote_items',
+    'notifications',
+    'system_audit_logs'
+  ];
   
   const backup = {};
   
@@ -410,105 +426,60 @@ async function createConfigBackup() {
   return backup;
 }
 
+/**
+ * Create uploads backup - Fixed to handle directories properly
+ */
 async function createUploadsBackup() {
   const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
-  const backup = { files: [] };
+  const backup = { files: [], directories: [] };
   
-  if (fs.existsSync(uploadsDir)) {
-    const files = fs.readdirSync(uploadsDir);
-    for (const file of files) {
-      const filePath = path.join(uploadsDir, file);
-      const content = fs.readFileSync(filePath, 'base64');
-      backup.files.push({
-        name: file,
-        content: content
-      });
-      console.log(`✅ Backed up upload: ${file}`);
-    }
-  } else {
+  if (!fs.existsSync(uploadsDir)) {
     console.log('⚠️ Uploads directory not found');
+    return backup;
+  }
+
+  // Recursively get all files from uploads directory
+  function getAllFiles(dir, basePath = '') {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    const files = [];
+    
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      const relativePath = basePath ? `${basePath}/${entry.name}` : entry.name;
+      
+      if (entry.isDirectory()) {
+        // Recursively get files from subdirectory
+        const subFiles = getAllFiles(fullPath, relativePath);
+        files.push(...subFiles);
+        backup.directories.push(relativePath);
+      } else if (entry.isFile()) {
+        try {
+          const content = fs.readFileSync(fullPath, 'base64');
+          files.push({
+            name: entry.name,
+            path: relativePath,
+            content: content,
+            size: fs.statSync(fullPath).size
+          });
+          console.log(`✅ Backed up upload: ${relativePath}`);
+        } catch (error) {
+          console.error(`Failed to read file ${relativePath}:`, error.message);
+        }
+      }
+    }
+    
+    return files;
+  }
+
+  try {
+    backup.files = getAllFiles(uploadsDir);
+    console.log(`✅ Backed up ${backup.files.length} files from uploads`);
+  } catch (error) {
+    console.error('Error backing up uploads:', error.message);
   }
   
   return backup;
 }
-
-// async function restoreDatabase(databaseBackup) {
-//   if (!databaseBackup) return;
-  
-//   console.log('[RESTORE] Starting database restore...');
-  
-//   // Order of tables to restore (respect foreign key constraints)
-//   const tableOrder = [
-//     'permissions',
-//     'roles',
-//     'role_permissions',
-//     'users',
-//     'user_permissions',
-//     'role_applications',
-//     'sessions',
-//     'security_logs',
-//     'trusted_devices'
-//   ];
-  
-//   // Note: SET session_replication_role requires superuser privileges in PostgreSQL
-//   // Instead, we'll handle foreign key constraints by ordering tables properly
-//   // and using TRUNCATE ... CASCADE
-  
-//   try {
-//     for (const tableName of tableOrder) {
-//       const tableData = databaseBackup[tableName];
-//       if (tableData && tableData.length > 0) {
-//         try {
-//           // Clear existing data from this table using TRUNCATE with CASCADE
-//           await prisma.$executeRawUnsafe(`TRUNCATE TABLE "${tableName}" CASCADE;`);
-//           console.log(`[RESTORE] Truncated table: ${tableName}`);
-          
-//           // Insert records one by one using individual transactions
-//           for (const record of tableData) {
-//             try {
-//               const columns = Object.keys(record).map(col => `"${col}"`).join(', ');
-//               const values = Object.values(record).map(v => {
-//                 if (v === null || v === undefined) return 'NULL';
-//                 if (v instanceof Date) return `'${v.toISOString()}'`;
-//                 if (typeof v === 'object') {
-//                   const jsonStr = JSON.stringify(v).replace(/'/g, "''");
-//                   return `'${jsonStr}'::jsonb`;
-//                 }
-//                 if (typeof v === 'string') {
-//                   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(v)) {
-//                     return `'${v}'::timestamp`;
-//                   }
-//                   return `'${v.replace(/'/g, "''")}'`;
-//                 }
-//                 return `'${v}'`;
-//               }).join(', ');
-              
-//               await prisma.$executeRawUnsafe(
-//                 `INSERT INTO "${tableName}" (${columns}) VALUES (${values}) ON CONFLICT (id) DO NOTHING;`
-//               );
-//             } catch (recordError) {
-//               console.error(`[RESTORE] Failed to insert record in ${tableName}:`, recordError.message);
-//               // Continue with next record
-//             }
-//           }
-//           console.log(`[RESTORE] Restored ${tableData.length} records to ${tableName}`);
-//         } catch (error) {
-//           console.error(`[RESTORE] Failed to restore table ${tableName}:`, error.message);
-//         }
-//       } else if (tableData && tableData.length === 0) {
-//         console.log(`[RESTORE] No data to restore for ${tableName}`);
-//         await prisma.$executeRawUnsafe(`TRUNCATE TABLE "${tableName}" CASCADE;`);
-//       } else {
-//         console.log(`[RESTORE] Table ${tableName} not found in backup`);
-//       }
-//     }
-    
-//     console.log('[RESTORE] Database restore completed successfully');
-//   } catch (error) {
-//     console.error('[RESTORE] Database restore error:', error);
-//     throw error;
-//   }
-// }
 
 async function cleanOldBackups(daysToKeep = 30) {
   if (!fs.existsSync(BACKUP_DIR)) return;

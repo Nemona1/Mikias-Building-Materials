@@ -1,8 +1,8 @@
-// app/api/admin/products/[id]/route.js - Fixed duplicate DELETE
+// app/api/admin/products/[id]/route.js - Updated with hasBusinessAccess
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAccessToken } from '@/lib/auth/jwt';
-import { hasAdminAccess } from '@/lib/auth/permissions';
+import { hasBusinessAccess } from '@/lib/auth/permissions'; // Changed
 import { logSecurityEvent } from '@/lib/security-log';
 import { deleteImages } from '@/lib/upload';
 
@@ -25,9 +25,9 @@ export async function GET(request, { params }) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const isAdmin = await hasAdminAccess(decoded.userId);
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
+    const hasAccess = await hasBusinessAccess(decoded.userId);
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Forbidden - Business management access required' }, { status: 403 });
     }
 
     const product = await prisma.product.findUnique({
@@ -78,11 +78,12 @@ export async function PUT(request, { params }) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const isAdmin = await hasAdminAccess(decoded.userId);
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
+    const hasAccess = await hasBusinessAccess(decoded.userId);
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Forbidden - Business management access required' }, { status: 403 });
     }
 
+    // ... rest of PUT function remains the same
     const data = await request.json();
 
     const existingProduct = await prisma.product.findUnique({
@@ -93,7 +94,6 @@ export async function PUT(request, { params }) {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
 
-    // Check slug uniqueness (if slug is being changed)
     if (data.slug && data.slug !== existingProduct.slug) {
       const slugExists = await prisma.product.findFirst({
         where: {
@@ -109,7 +109,6 @@ export async function PUT(request, { params }) {
       }
     }
 
-    // Match schema field names exactly
     const product = await prisma.product.update({
       where: { id },
       data: {
@@ -173,7 +172,7 @@ export async function PUT(request, { params }) {
   }
 }
 
-// DELETE - Delete product and its images (Single unified DELETE function)
+// DELETE - Delete product and its images
 export async function DELETE(request, { params }) {
   try {
     const { id } = await params;
@@ -192,12 +191,11 @@ export async function DELETE(request, { params }) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const isAdmin = await hasAdminAccess(decoded.userId);
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
+    const hasAccess = await hasBusinessAccess(decoded.userId);
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Forbidden - Business management access required' }, { status: 403 });
     }
 
-    // Get product first to get image URLs
     const product = await prisma.product.findUnique({
       where: { id }
     });
@@ -206,20 +204,16 @@ export async function DELETE(request, { params }) {
       return NextResponse.json({ error: 'Product not found' }, { status: 404 });
     }
 
-    // Delete images from file system
     const imageUrls = product.images || [];
     let imagesDeleted = 0;
     if (imageUrls.length > 0) {
       imagesDeleted = deleteImages(imageUrls);
-      console.log(`Deleted ${imagesDeleted} images for product ${product.name}`);
     }
 
-    // Delete product from database
     await prisma.product.delete({
       where: { id }
     });
 
-    // Log the deletion
     await logSecurityEvent({
       userId: decoded.userId,
       action: 'PRODUCT_DELETED',

@@ -1,6 +1,7 @@
+// app/api/admin/backup/download/route.js - Complete fixed version
 import { NextResponse } from 'next/server';
 import { verifyAccessToken } from '@/lib/auth/jwt';
-import { hasPermission } from '@/lib/auth/permissions';
+import { hasAdminAccess } from '@/lib/auth/permissions';
 import { logSecurityEvent, SecurityActions } from '@/lib/security-log';
 import fs from 'fs';
 import path from 'path';
@@ -30,9 +31,9 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
     
-    const hasAdminAccess = await hasPermission(decoded.userId, 'admin:access');
-    if (!hasAdminAccess) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const isAdmin = await hasAdminAccess(decoded.userId);
+    if (!isAdmin) {
+      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
     }
     
     const ipAddress = request.headers.get('x-forwarded-for') || 'unknown';
@@ -57,7 +58,6 @@ export async function GET(request) {
     
     const fileContent = fs.readFileSync(filePath);
     
-    // Log backup download event
     await logSecurityEvent({
       userId: decoded.userId,
       action: SecurityActions.BACKUP_DOWNLOADED,
@@ -84,7 +84,6 @@ export async function GET(request) {
   } catch (error) {
     console.error('Download backup error:', error);
     
-    // Try to log error but don't let it block the response
     try {
       const token = request.headers.get('authorization')?.replace('Bearer ', '');
       if (token) {

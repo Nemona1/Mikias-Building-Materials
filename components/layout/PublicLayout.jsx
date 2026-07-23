@@ -1,4 +1,4 @@
-// components/layout/PublicLayout.jsx - Optimized with caching
+// components/layout/PublicLayout.jsx - Updated to use public settings API
 'use client';
 
 import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
@@ -21,7 +21,7 @@ export default function PublicLayout({ children, activeSection = 'home' }) {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const fetchInProgress = useRef(false);
 
-  // Fetch site name with caching
+  // Fetch site name with caching using PUBLIC API
   useEffect(() => {
     const fetchSiteName = async () => {
       // Use cached value if available and fresh
@@ -36,11 +36,17 @@ export default function PublicLayout({ children, activeSection = 'home' }) {
       fetchInProgress.current = true;
 
       try {
-        const res = await fetch('/api/admin/settings?category=general');
+        // Use PUBLIC settings API - no authentication required
+        const res = await fetch('/api/settings?category=general');
+        
         if (res.ok) {
           const data = await res.json();
-          if (data.settings?.siteName) {
-            cachedSiteName = data.settings.siteName;
+          const settings = data.settings || [];
+          
+          // Find site name in settings
+          const siteNameSetting = settings.find(s => s.key === 'siteName');
+          if (siteNameSetting && siteNameSetting.value) {
+            cachedSiteName = siteNameSetting.value;
             siteNameCacheTime = Date.now();
             setSiteName(cachedSiteName);
             setSettingsLoaded(true);

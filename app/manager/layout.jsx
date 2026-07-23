@@ -1,14 +1,14 @@
-// app/manager/layout.jsx
+// app/manager/layout.jsx - Updated with refresh key support
 'use client';
 
-import { useEffect } from 'react';
+import React, { useEffect, Children, isValidElement, cloneElement } from 'react';
 import { useRouter } from 'next/navigation';
 import Navbar from '@/components/layout/Navbar';
 import Sidebar from '@/components/layout/Sidebar';
 import { useAuth } from '@/hooks/useAuth';
 import { useSidebar } from '@/context/SidebarContext';
 
-export default function ManagerLayout({ children }) {
+export default function ManagerLayout({ children, refreshKey = 0 }) {
   const router = useRouter();
   const { user, isLoading, isAuthenticated, isInitialized } = useAuth();
   const { collapsed } = useSidebar();
@@ -28,7 +28,6 @@ export default function ManagerLayout({ children }) {
 
       if (!hasAccess) {
         console.log('[Manager Layout] No manager access for role:', roleName);
-        // Redirect to appropriate dashboard
         const dashboardMap = {
           'super_admin': '/dashboard/super-admin',
           'admin': '/dashboard/admin',
@@ -71,7 +70,12 @@ export default function ManagerLayout({ children }) {
       <div className="flex">
         <Sidebar />
         <main className={`flex-1 p-8 transition-all duration-300 ${collapsed ? 'ml-20' : 'ml-64'}`}>
-          {children}
+          {Children.map(children, child => {
+            if (isValidElement(child)) {
+              return cloneElement(child, { refreshKey });
+            }
+            return child;
+          })}
         </main>
       </div>
     </div>

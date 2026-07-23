@@ -1,7 +1,7 @@
-// app/api/admin/products/upload/route.js - Image upload endpoint
+// app/api/admin/products/upload/route.js - Updated with hasBusinessAccess
 import { NextResponse } from 'next/server';
 import { verifyAccessToken } from '@/lib/auth/jwt';
-import { hasAdminAccess } from '@/lib/auth/permissions';
+import { hasBusinessAccess } from '@/lib/auth/permissions'; // Changed
 import { saveImage, deleteImage } from '@/lib/upload';
 import { logSecurityEvent } from '@/lib/security-log';
 
@@ -13,7 +13,6 @@ export const config = {
 
 export async function POST(request) {
   try {
-    // Verify authentication
     let token = request.headers.get('authorization')?.replace('Bearer ', '');
     if (!token) {
       token = request.cookies.get('accessToken')?.value;
@@ -28,12 +27,11 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const isAdmin = await hasAdminAccess(decoded.userId);
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
+    const hasAccess = await hasBusinessAccess(decoded.userId);
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Forbidden - Business management access required' }, { status: 403 });
     }
 
-    // Parse form data
     const formData = await request.formData();
     const file = formData.get('image');
 
@@ -41,10 +39,8 @@ export async function POST(request) {
       return NextResponse.json({ error: 'No image file provided' }, { status: 400 });
     }
 
-    // Save image
     const result = await saveImage(file);
 
-    // Log the upload
     await logSecurityEvent({
       userId: decoded.userId,
       action: 'IMAGE_UPLOADED',
@@ -92,9 +88,9 @@ export async function DELETE(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const isAdmin = await hasAdminAccess(decoded.userId);
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
+    const hasAccess = await hasBusinessAccess(decoded.userId);
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Forbidden - Business management access required' }, { status: 403 });
     }
 
     const { searchParams } = new URL(request.url);

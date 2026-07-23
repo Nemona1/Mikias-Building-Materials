@@ -1,13 +1,13 @@
+// app/api/admin/backup/status/route.js - Complete fixed version
 import { NextResponse } from 'next/server';
 import { verifyAccessToken } from '@/lib/auth/jwt';
-import { hasPermission } from '@/lib/auth/permissions';
-
-// This should be shared with the main backup route
-const activeRestores = new Map();
+import { hasAdminAccess } from '@/lib/auth/permissions';
+import { activeRestores } from '../route';
 
 export async function GET(request) {
   try {
-    const restoreId = request.headers.get('X-Restore-Id');
+    const { searchParams } = new URL(request.url);
+    const restoreId = searchParams.get('restoreId');
     
     if (!restoreId) {
       return NextResponse.json({ error: 'Restore ID required' }, { status: 400 });
@@ -27,15 +27,18 @@ export async function GET(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
     
-    const hasAdminAccess = await hasPermission(decoded.userId, 'admin:access');
-    if (!hasAdminAccess) {
-      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const isAdmin = await hasAdminAccess(decoded.userId);
+    if (!isAdmin) {
+      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
     }
     
     const restoreInfo = activeRestores.get(restoreId);
     
     if (!restoreInfo) {
-      return NextResponse.json({ status: 'not_found' });
+      return NextResponse.json({ 
+        status: 'not_found',
+        message: 'Restore operation not found'
+      });
     }
     
     return NextResponse.json(restoreInfo);
@@ -43,7 +46,7 @@ export async function GET(request) {
   } catch (error) {
     console.error('Restore status error:', error);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { error: 'Failed to get restore status: ' + error.message },
       { status: 500 }
     );
   }

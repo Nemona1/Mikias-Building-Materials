@@ -1,4 +1,4 @@
-// app/admin/quotes/page.jsx
+// app/admin/quotes/page.jsx - Updated with proper access control
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -84,8 +84,15 @@ export default function AdminQuotesPage() {
         setQuotes(data.quotes || []);
         setPagination(data.pagination || { page: 1, limit: 10, total: 0, totalPages: 0 });
       } else if (res.status === 403) {
-        toast.error('Access denied. Admin privileges required.');
-        router.push('/dashboard');
+        const error = await res.json().catch(() => ({}));
+        if (error.error && error.error.includes('Business management access required')) {
+          toast.error('You do not have business management access. Please contact your administrator.');
+        } else if (error.error && error.error.includes('Admin access required')) {
+          toast.error('Admin access required. This section is for administrators only.');
+        } else {
+          toast.error('Access denied. You do not have permission to view quotes.');
+        }
+        setTimeout(() => router.push('/dashboard'), 2000);
       } else if (res.status === 401) {
         toast.error('Session expired. Please login again.');
         router.push('/login');
@@ -101,6 +108,7 @@ export default function AdminQuotesPage() {
     }
   };
 
+  // ... rest of the component remains the same ...
   const handleSearch = (e) => {
     e.preventDefault();
     setPagination(prev => ({ ...prev, page: 1 }));
@@ -163,6 +171,7 @@ export default function AdminQuotesPage() {
       setUpdatingStatus(false);
     }
   };
+
 
   const handlePageChange = (newPage) => {
     if (newPage >= 1 && newPage <= pagination.totalPages) {

@@ -1,8 +1,8 @@
-// app/api/admin/quotes/route.js
+// app/api/admin/quotes/route.js - Updated with hasBusinessAccess
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { verifyAccessToken } from '@/lib/auth/jwt';
-import { hasAdminAccess } from '@/lib/auth/permissions';
+import { hasBusinessAccess } from '@/lib/auth/permissions'; // Changed
 import { logSecurityEvent, SecurityActions } from '@/lib/security-log';
 
 // GET - List quotes with pagination and filtering
@@ -16,31 +16,25 @@ export async function GET(request) {
     const search = searchParams.get('search') || '';
     const skip = (page - 1) * limit;
 
-    console.log('[Quotes API] Fetching quotes with params:', { page, limit, status, priority, search });
-
     let token = request.headers.get('authorization')?.replace('Bearer ', '');
     if (!token) {
       token = request.cookies.get('accessToken')?.value;
     }
 
     if (!token) {
-      console.log('[Quotes API] No token found');
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { valid, decoded } = await verifyAccessToken(token);
     if (!valid) {
-      console.log('[Quotes API] Invalid token');
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const isAdmin = await hasAdminAccess(decoded.userId);
-    if (!isAdmin) {
-      console.log('[Quotes API] User is not admin:', decoded.userId);
-      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
+    const hasAccess = await hasBusinessAccess(decoded.userId);
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Forbidden - Business management access required' }, { status: 403 });
     }
 
-    // Build where clause
     const where = {};
     if (status) where.status = status;
     if (priority) where.priority = priority;
@@ -54,17 +48,12 @@ export async function GET(request) {
       ];
     }
 
-    console.log('[Quotes API] Where clause:', JSON.stringify(where, null, 2));
-
-    // Get total count
     const total = await prisma.quoteRequest.count({ where });
-    console.log('[Quotes API] Total quotes:', total);
 
-    // Get quotes with pagination
     const quotes = await prisma.quoteRequest.findMany({
       where,
       orderBy: [
-        { priority: 'desc' }, // high priority first
+        { priority: 'desc' },
         { createdAt: 'desc' }
       ],
       take: limit,
@@ -94,8 +83,6 @@ export async function GET(request) {
         }
       }
     });
-
-    console.log('[Quotes API] Found quotes:', quotes.length);
 
     return NextResponse.json({
       quotes,
@@ -133,14 +120,13 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Invalid token' }, { status: 401 });
     }
 
-    const isAdmin = await hasAdminAccess(decoded.userId);
-    if (!isAdmin) {
-      return NextResponse.json({ error: 'Forbidden - Admin access required' }, { status: 403 });
+    const hasAccess = await hasBusinessAccess(decoded.userId);
+    if (!hasAccess) {
+      return NextResponse.json({ error: 'Forbidden - Business management access required' }, { status: 403 });
     }
 
     const data = await request.json();
     
-    // Validate required fields
     if (!data.customerName || !data.customerEmail || !data.subject || !data.message) {
       return NextResponse.json(
         { error: 'Customer name, email, subject, and message are required' },
@@ -148,7 +134,6 @@ export async function POST(request) {
       );
     }
 
-    // Generate tracking ID
     const year = new Date().getFullYear();
     const count = await prisma.quoteRequest.count();
     const trackingId = `Q-${year}-${String(count + 1).padStart(4, '0')}`;

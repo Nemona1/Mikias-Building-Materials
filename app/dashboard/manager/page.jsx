@@ -1,7 +1,7 @@
-// app/dashboard/manager/page.jsx
+// app/dashboard/manager/page.jsx - Updated with refresh key and customer count
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { 
@@ -11,23 +11,80 @@ import {
   AlertCircle, CheckCircle, XCircle, UserPlus, MessageSquare,
   BarChart3, LineChart, Download, Filter, Search, Settings,
   Package, ShoppingCart, Truck, Phone, Building2, UserCog,
-  Loader2
+  Loader2, Building
 } from 'lucide-react';
 import { useInactivityTimer } from '@/hooks/useInactivityTimer';
 import { useRouter } from 'next/navigation';
 import toast from 'react-hot-toast';
 import { useAuth } from '@/hooks/useAuth';
 
-export default function ManagerDashboard() {
+// Memoized Stat Card Component
+const StatCard = React.memo(({ stat }) => {
+  const Icon = stat.icon;
+  return (
+    <Card className="p-4 hover:shadow-lg transition-all duration-200 group">
+      <div className="flex items-center justify-between mb-2">
+        <div className={`h-10 w-10 rounded-xl ${stat.bg} flex items-center justify-center group-hover:scale-110 transition-transform duration-200`}>
+          <Icon className={`h-5 w-5 text-${stat.color}`} />
+        </div>
+        <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
+          stat.trend === 'up' ? 'bg-success/10 text-success' : 'bg-error/10 text-error'
+        }`}>
+          {stat.change}
+        </span>
+      </div>
+      <p className="text-2xl font-bold text-foreground">{stat.value}</p>
+      <p className="text-sm font-medium text-foreground mt-1">{stat.title}</p>
+      <p className="text-xs text-muted">{stat.description}</p>
+    </Card>
+  );
+});
+
+StatCard.displayName = 'StatCard';
+
+// Memoized Quick Action Component
+const QuickAction = React.memo(({ action, onClick }) => {
+  const Icon = action.icon;
+  return (
+    <button
+      onClick={() => onClick(action.path)}
+      className="w-full text-left p-3 rounded-lg bg-muted/5 hover:bg-primary/10 transition-all duration-200 group"
+    >
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className={`h-8 w-8 rounded-lg bg-${action.color}/10 flex items-center justify-center group-hover:scale-110 transition-transform`}>
+            <Icon className={`h-4 w-4 text-${action.color}`} />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-foreground">{action.title}</p>
+            <p className="text-xs text-muted">{action.description}</p>
+          </div>
+        </div>
+        {action.badge !== undefined && action.badge > 0 && (
+          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-warning/10 text-warning">
+            {action.badge}
+          </span>
+        )}
+        <ChevronRight className="h-4 w-4 text-muted group-hover:text-primary transition-colors" />
+      </div>
+    </button>
+  );
+});
+
+QuickAction.displayName = 'QuickAction';
+
+export default function ManagerDashboard({ refreshKey = 0 }) {
   useInactivityTimer(1);
   const router = useRouter();
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({
     totalStaff: 0,
     pendingQuotes: 0,
     completedOrders: 0,
     activeCustomers: 0,
+    totalCustomers: 0,
     productivity: 0,
     taskCompletion: 0,
     teamEfficiency: 0,
@@ -41,14 +98,80 @@ export default function ManagerDashboard() {
   const [teamMembers, setTeamMembers] = useState([]);
   const [pendingQuotes, setPendingQuotes] = useState([]);
 
-  useEffect(() => {
-    fetchDashboardData();
-    const interval = setInterval(fetchDashboardData, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  // Memoized stat cards with customer count
+  const statCards = useMemo(() => [
+    {
+      title: 'Staff Members',
+      value: stats.totalStaff,
+      icon: Users,
+      change: '+2',
+      trend: 'up',
+      color: 'primary',
+      bg: 'bg-primary/10',
+      description: 'Active team members'
+    },
+    {
+      title: 'Customers',
+      value: stats.totalCustomers,
+      icon: Building2,
+      change: '+5',
+      trend: 'up',
+      color: 'success',
+      bg: 'bg-success/10',
+      description: 'Total registered customers'
+    },
+    {
+      title: 'Pending Quotes',
+      value: stats.pendingQuotes,
+      icon: Clock,
+      change: '-1',
+      trend: 'down',
+      color: 'warning',
+      bg: 'bg-warning/10',
+      description: 'Awaiting processing'
+    },
+    {
+      title: 'Orders Completed',
+      value: stats.completedOrders,
+      icon: CheckSquare,
+      change: '+15',
+      trend: 'up',
+      color: 'success',
+      bg: 'bg-success/10',
+      description: 'This month'
+    },
+    {
+      title: 'Stock Items',
+      value: stats.totalProducts,
+      icon: Package,
+      change: '+5%',
+      trend: 'up',
+      color: 'purple',
+      bg: 'bg-purple-100 dark:bg-purple-500/10',
+      description: 'Available products'
+    },
+    {
+      title: 'Pending Deliveries',
+      value: stats.pendingDeliveries,
+      icon: Truck,
+      change: '-2',
+      trend: 'down',
+      color: 'warning',
+      bg: 'bg-warning/10',
+      description: 'Awaiting dispatch'
+    }
+  ], [stats]);
 
-  const fetchDashboardData = async () => {
-    setLoading(true);
+  // Memoized quick actions with business management links
+  const quickActions = useMemo(() => [
+    { title: 'Add Staff', description: 'Invite new team members', path: '/manager/staff/add', icon: UserPlus, color: 'primary' },
+    { title: 'Review Quotes', description: 'Process pending quotes', path: '/admin/quotes', icon: Clock, color: 'warning', badge: stats.pendingQuotes },
+    { title: 'Manage Products', description: 'Update product inventory', path: '/admin/products', icon: Package, color: 'success' },
+    { title: 'View Customers', description: 'Manage customer accounts', path: '/admin/customers', icon: Building2, color: 'info' }
+  ], [stats.pendingQuotes]);
+
+  const fetchDashboardData = useCallback(async () => {
+    setRefreshing(true);
     try {
       const token = localStorage.getItem('accessToken');
       
@@ -88,8 +211,25 @@ export default function ManagerDashboard() {
       toast.error('Failed to load dashboard data');
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
-  };
+  }, [router]);
+
+  // Initial load and refresh on key change
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData, refreshKey]);
+
+  // Auto-refresh interval
+  useEffect(() => {
+    const interval = setInterval(fetchDashboardData, 30000);
+    return () => clearInterval(interval);
+  }, [fetchDashboardData]);
+
+  // Navigation handler
+  const handleNavigation = useCallback((path) => {
+    router.push(path);
+  }, [router]);
 
   const getPriorityColor = (priority) => {
     switch (priority) {
@@ -109,76 +249,6 @@ export default function ManagerDashboard() {
     }
   };
 
-  const statCards = [
-    {
-      title: 'Staff Members',
-      value: stats.totalStaff,
-      icon: Users,
-      change: '+2',
-      trend: 'up',
-      color: 'primary',
-      bg: 'bg-primary/10',
-      description: 'Active team members'
-    },
-    {
-      title: 'Pending Quotes',
-      value: stats.pendingQuotes,
-      icon: Clock,
-      change: '-1',
-      trend: 'down',
-      color: 'warning',
-      bg: 'bg-warning/10',
-      description: 'Awaiting processing'
-    },
-    {
-      title: 'Orders Completed',
-      value: stats.completedOrders,
-      icon: CheckSquare,
-      change: '+15',
-      trend: 'up',
-      color: 'success',
-      bg: 'bg-success/10',
-      description: 'This month'
-    },
-    {
-      title: 'Active Customers',
-      value: stats.activeCustomers,
-      icon: Users,
-      change: '+1',
-      trend: 'up',
-      color: 'info',
-      bg: 'bg-info/10',
-      description: 'In progress'
-    },
-    {
-      title: 'Stock Items',
-      value: stats.totalProducts,
-      icon: Package,
-      change: '+5%',
-      trend: 'up',
-      color: 'purple',
-      bg: 'bg-purple-100 dark:bg-purple-500/10',
-      description: 'Available products'
-    },
-    {
-      title: 'Pending Deliveries',
-      value: stats.pendingDeliveries,
-      icon: Truck,
-      change: '-2',
-      trend: 'down',
-      color: 'warning',
-      bg: 'bg-warning/10',
-      description: 'Awaiting dispatch'
-    }
-  ];
-
-  const quickActions = [
-    { title: 'Add Staff', description: 'Invite new team members', path: '/manager/staff/add', icon: UserPlus, color: 'primary' },
-    { title: 'Review Quotes', description: 'Process pending quotes', path: '/admin/quotes', icon: Clock, color: 'warning', badge: stats.pendingQuotes },
-    { title: 'Manage Stock', description: 'Update product inventory', path: '/admin/products', icon: Package, color: 'success' },
-    { title: 'Staff Members', description: 'View your team', path: '/manager/staff', icon: UserCog, color: 'info' }
-  ];
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full min-h-[400px]">
@@ -192,7 +262,7 @@ export default function ManagerDashboard() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header - Removed duplicate refresh button */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-900 to-gray-600 dark:from-white dark:to-gray-400 bg-clip-text text-transparent">
@@ -201,12 +271,15 @@ export default function ManagerDashboard() {
           <p className="text-muted mt-1">
             Welcome back, {user?.firstName}! Managing operations at Mikias Building Materials
           </p>
-          <div className="flex items-center gap-2 mt-2">
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
             <span className="text-sm text-muted">Staff Count:</span>
             <span className="text-sm font-semibold text-foreground">{stats.totalStaff}</span>
             <span className="text-sm text-muted">•</span>
-            <span className="text-sm text-muted">Active Customers:</span>
-            <span className="text-sm font-semibold text-foreground">{stats.activeCustomers}</span>
+            <span className="text-sm text-muted">Customers:</span>
+            <span className="text-sm font-semibold text-foreground">{stats.totalCustomers}</span>
+            <span className="text-sm text-muted">•</span>
+            <span className="text-sm text-muted">Pending Quotes:</span>
+            <span className="text-sm font-semibold text-warning">{stats.pendingQuotes}</span>
           </div>
         </div>
         <div className="flex gap-3">
@@ -215,8 +288,8 @@ export default function ManagerDashboard() {
             onClick={fetchDashboardData}
             className="gap-2"
           >
-            <RefreshCw className="h-4 w-4" />
-            Refresh
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
           </Button>
           <Button
             onClick={() => router.push('/manager/staff/add')}
@@ -230,26 +303,9 @@ export default function ManagerDashboard() {
 
       {/* Stats Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        {statCards.map((stat, index) => {
-          const Icon = stat.icon;
-          return (
-            <Card key={index} className="p-4 hover:shadow-lg transition-all duration-200 group">
-              <div className="flex items-center justify-between mb-2">
-                <div className={`h-10 w-10 rounded-xl ${stat.bg} flex items-center justify-center group-hover:scale-110 transition-transform duration-200`}>
-                  <Icon className={`h-5 w-5 text-${stat.color}`} />
-                </div>
-                <span className={`text-xs font-medium px-1.5 py-0.5 rounded-full ${
-                  stat.trend === 'up' ? 'bg-success/10 text-success' : 'bg-error/10 text-error'
-                }`}>
-                  {stat.change}
-                </span>
-              </div>
-              <p className="text-2xl font-bold text-foreground">{stat.value}</p>
-              <p className="text-sm font-medium text-foreground mt-1">{stat.title}</p>
-              <p className="text-xs text-muted">{stat.description}</p>
-            </Card>
-          );
-        })}
+        {statCards.map((stat, index) => (
+          <StatCard key={index} stat={stat} />
+        ))}
       </div>
 
       {/* Main Content Grid */}
@@ -261,34 +317,13 @@ export default function ManagerDashboard() {
             <Building2 className="h-5 w-5 text-primary" />
           </div>
           <div className="space-y-3">
-            {quickActions.map((action, index) => {
-              const Icon = action.icon;
-              return (
-                <button
-                  key={index}
-                  onClick={() => router.push(action.path)}
-                  className="w-full text-left p-3 rounded-lg bg-muted/5 hover:bg-primary/10 transition-all duration-200 group"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className={`h-8 w-8 rounded-lg bg-${action.color}/10 flex items-center justify-center group-hover:scale-110 transition-transform`}>
-                        <Icon className={`h-4 w-4 text-${action.color}`} />
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{action.title}</p>
-                        <p className="text-xs text-muted">{action.description}</p>
-                      </div>
-                    </div>
-                    {action.badge !== undefined && action.badge > 0 && (
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-warning/10 text-warning">
-                        {action.badge}
-                      </span>
-                    )}
-                    <ChevronRight className="h-4 w-4 text-muted group-hover:text-primary transition-colors" />
-                  </div>
-                </button>
-              );
-            })}
+            {quickActions.map((action, index) => (
+              <QuickAction 
+                key={index} 
+                action={action} 
+                onClick={handleNavigation} 
+              />
+            ))}
           </div>
         </Card>
 
@@ -313,7 +348,7 @@ export default function ManagerDashboard() {
                     <p className="text-xs text-muted">{activity.time}</p>
                   </div>
                   {activity.status === 'pending' && (
-                    <Button size="sm" variant="outline" className="gap-1">
+                    <Button size="sm" variant="outline" className="gap-1" onClick={() => handleNavigation('/admin/quotes')}>
                       Review
                     </Button>
                   )}
@@ -331,7 +366,7 @@ export default function ManagerDashboard() {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold text-foreground">Staff Members</h2>
             <button 
-              onClick={() => router.push('/manager/staff')}
+              onClick={() => handleNavigation('/manager/staff')}
               className="text-primary hover:text-primary-hover text-sm flex items-center gap-1"
             >
               Manage Staff <ChevronRight className="h-4 w-4" />
@@ -365,7 +400,7 @@ export default function ManagerDashboard() {
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold text-foreground">Pending Quotes</h2>
             <button 
-              onClick={() => router.push('/admin/quotes')}
+              onClick={() => handleNavigation('/admin/quotes')}
               className="text-primary hover:text-primary-hover text-sm flex items-center gap-1"
             >
               View All <ChevronRight className="h-4 w-4" />
@@ -391,10 +426,10 @@ export default function ManagerDashboard() {
                     </span>
                   </div>
                   <div className="flex gap-2 mt-3">
-                    <Button size="sm" variant="outline" className="gap-1">
+                    <Button size="sm" variant="outline" className="gap-1" onClick={() => handleNavigation('/admin/quotes')}>
                       <Eye className="h-3 w-3" /> Review
                     </Button>
-                    <Button size="sm" variant="outline" className="gap-1 text-success border-success hover:bg-success/10">
+                    <Button size="sm" variant="outline" className="gap-1 text-success border-success hover:bg-success/10" onClick={() => handleNavigation('/admin/quotes')}>
                       <CheckCircle className="h-3 w-3" /> Process
                     </Button>
                   </div>
@@ -451,8 +486,8 @@ export default function ManagerDashboard() {
               <span className="text-sm font-semibold text-foreground">{stats.totalQuotes || 0}</span>
             </div>
             <div className="flex justify-between items-center p-2 rounded-lg bg-muted/5">
-              <span className="text-sm text-foreground">Order Fulfillment</span>
-              <span className="text-sm font-semibold text-foreground">{stats.taskCompletion || 0}%</span>
+              <span className="text-sm text-foreground">Total Customers</span>
+              <span className="text-sm font-semibold text-foreground">{stats.totalCustomers || 0}</span>
             </div>
             <div className="flex justify-between items-center p-2 rounded-lg bg-muted/5">
               <span className="text-sm text-foreground">Active Staff</span>

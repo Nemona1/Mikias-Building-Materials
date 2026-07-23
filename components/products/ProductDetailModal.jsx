@@ -1,21 +1,313 @@
-// components/products/ProductDetailModal.jsx - Optimized with lazy loading
+// components/products/ProductDetailModal.jsx - Advanced Image Viewer with Hover Zoom
 'use client';
 
-import { useState, useEffect, useRef, lazy, Suspense } from 'react';
-import { X, ShoppingCart, Package, Star } from 'lucide-react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { X, ShoppingCart, Package, Star, ZoomIn, Maximize2, Minimize2, ChevronLeft, ChevronRight } from 'lucide-react';
 
-// Lazy load heavy components
-const ImageGallery = lazy(() => import('@/components/ui/ImageGallery'));
+// Image Viewer Component with Hover Zoom
+function ProductImageViewer({ images, productName }) {
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isZoomed, setIsZoomed] = useState(false);
+  const [mousePosition, setMousePosition] = useState({ x: 50, y: 50 });
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [isHovering, setIsHovering] = useState(false);
+  const containerRef = useRef(null);
+  const zoomTimeoutRef = useRef(null);
 
-// Loading fallback
-function ModalLoadingFallback() {
+  const currentImage = images[selectedIndex] || null;
+
+  // Handle keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (!isModalOpen) return;
+      if (e.key === 'ArrowLeft') {
+        handlePrevious();
+      } else if (e.key === 'ArrowRight') {
+        handleNext();
+      } else if (e.key === 'Escape') {
+        closeModal();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isModalOpen, selectedIndex, images.length]);
+
+  // Handle mouse move for zoom effect
+  const handleMouseMove = useCallback((e) => {
+    if (!containerRef.current) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    setMousePosition({
+      x: Math.min(Math.max(x, 0), 100),
+      y: Math.min(Math.max(y, 0), 100)
+    });
+    setIsHovering(true);
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    setIsHovering(false);
+  }, []);
+
+  // Handle hover zoom with delay
+  const handleMouseEnter = useCallback(() => {
+    if (zoomTimeoutRef.current) {
+      clearTimeout(zoomTimeoutRef.current);
+    }
+    zoomTimeoutRef.current = setTimeout(() => {
+      setIsZoomed(true);
+    }, 300);
+  }, []);
+
+  const handleMouseLeaveZoom = useCallback(() => {
+    if (zoomTimeoutRef.current) {
+      clearTimeout(zoomTimeoutRef.current);
+    }
+    setIsZoomed(false);
+    setIsHovering(false);
+  }, []);
+
+  const handlePrevious = () => {
+    setSelectedIndex((prev) => (prev === 0 ? images.length - 1 : prev - 1));
+    setImageLoaded(false);
+  };
+
+  const handleNext = () => {
+    setSelectedIndex((prev) => (prev === images.length - 1 ? 0 : prev + 1));
+    setImageLoaded(false);
+  };
+
+  const openModal = () => {
+    setIsModalOpen(true);
+    document.body.style.overflow = 'hidden';
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setIsZoomed(false);
+    setIsHovering(false);
+    document.body.style.overflow = 'unset';
+  };
+
+  const toggleZoom = () => {
+    setIsZoomed(!isZoomed);
+  };
+
+  if (!images || images.length === 0) {
+    return (
+      <div className="aspect-square rounded-lg bg-muted/10 flex items-center justify-center border-2 border-dashed border-border">
+        <div className="text-center">
+          <Package className="h-12 w-12 text-muted/40 mx-auto mb-2" />
+          <p className="text-xs text-muted">No images</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex items-center justify-center h-96">
-      <div className="spinner h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+    <div className="space-y-3">
+      {/* Main Image Display with Hover Zoom */}
+      <div
+        ref={containerRef}
+        className="relative aspect-square rounded-lg overflow-hidden bg-muted/10 border border-border group cursor-zoom-in"
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        onClick={openModal}
+      >
+        {currentImage ? (
+          <div className="relative w-full h-full overflow-hidden">
+            <img
+              src={currentImage}
+              alt={`${productName} - Image ${selectedIndex + 1}`}
+              className={`w-full h-full object-contain transition-transform duration-300 ${
+                imageLoaded ? 'opacity-100' : 'opacity-0'
+              }`}
+              style={isZoomed && isHovering ? {
+                transformOrigin: `${mousePosition.x}% ${mousePosition.y}%`,
+                transform: 'scale(2)',
+              } : {}}
+              onLoad={() => setImageLoaded(true)}
+              onError={(e) => {
+                e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect fill="%23f1f5f9" width="100" height="100"/%3E%3Ctext x="50" y="50" font-family="Arial" font-size="12" fill="%2364748b" text-anchor="middle" dy=".3em"%3ENo Image%3C/text%3E%3C/svg%3E';
+              }}
+              onMouseEnter={handleMouseEnter}
+              onMouseLeave={handleMouseLeaveZoom}
+            />
+            {/* Zoom Overlay */}
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-all duration-300 flex items-center justify-center pointer-events-none">
+              <div className="bg-black/50 rounded-full p-2 opacity-0 group-hover:opacity-100 transition-all duration-300 transform group-hover:scale-110">
+                <ZoomIn className="h-5 w-5 text-white" />
+              </div>
+            </div>
+            {/* Zoom Indicator */}
+            {isZoomed && isHovering && (
+              <div className="absolute top-2 left-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1">
+                <Maximize2 className="h-3 w-3" />
+                Zoomed
+              </div>
+            )}
+            {/* Image Counter */}
+            <div className="absolute bottom-2 right-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded-full">
+              {selectedIndex + 1} / {images.length}
+            </div>
+            {/* Expand hint */}
+            <div className="absolute bottom-2 left-2 bg-black/60 text-white text-[10px] px-2 py-0.5 rounded-full">
+              Click to expand
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center justify-center h-full">
+            <div className="spinner h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        )}
+      </div>
+
+      {/* Thumbnail Navigation */}
+      {images.length > 1 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 custom-scrollbar">
+          {images.map((img, index) => (
+            <button
+              key={index}
+              onClick={() => {
+                setSelectedIndex(index);
+                setImageLoaded(false);
+                setIsZoomed(false);
+              }}
+              className={`relative flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 transition-all duration-200 ${
+                selectedIndex === index
+                  ? 'border-primary shadow-lg scale-105'
+                  : 'border-border hover:border-primary/50'
+              }`}
+            >
+              <img
+                src={img}
+                alt={`${productName} - Thumbnail ${index + 1}`}
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  e.target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect fill="%23f1f5f9" width="100" height="100"/%3E%3Ctext x="50" y="50" font-family="Arial" font-size="12" fill="%2364748b" text-anchor="middle" dy=".3em"%3ENo Image%3C/text%3E%3C/svg%3E';
+                }}
+              />
+              {selectedIndex === index && (
+                <div className="absolute inset-0 border-2 border-primary rounded-lg pointer-events-none"></div>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Full Screen Modal */}
+      {isModalOpen && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeModal();
+          }}
+        >
+          <div className="relative w-full max-w-5xl max-h-[90vh] flex flex-col">
+            {/* Header */}
+            <div className="flex items-center justify-between text-white mb-3">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-medium">{productName}</span>
+                <span className="text-xs text-white/60">
+                  {selectedIndex + 1} / {images.length}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={toggleZoom}
+                  className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                  title={isZoomed ? 'Zoom Out' : 'Zoom In'}
+                >
+                  {isZoomed ? (
+                    <Minimize2 className="h-5 w-5" />
+                  ) : (
+                    <Maximize2 className="h-5 w-5" />
+                  )}
+                </button>
+                <button
+                  onClick={closeModal}
+                  className="p-2 rounded-lg hover:bg-white/10 transition-colors"
+                >
+                  <X className="h-6 w-6" />
+                </button>
+              </div>
+            </div>
+
+            {/* Image Container */}
+            <div className="relative flex-1 min-h-0 bg-black/50 rounded-lg overflow-hidden">
+              <div
+                className="relative w-full h-full flex items-center justify-center"
+                onMouseMove={isZoomed ? handleMouseMove : undefined}
+                onMouseLeave={isZoomed ? handleMouseLeave : undefined}
+              >
+                <img
+                  src={currentImage}
+                  alt={`${productName} - Full view`}
+                  className={`max-w-full max-h-full object-contain transition-all duration-300 ${
+                    isZoomed ? 'cursor-zoom-out' : 'cursor-zoom-in'
+                  }`}
+                  style={isZoomed ? {
+                    transform: `scale(2) translate(${mousePosition.x < 50 ? '' : '-'}${Math.abs(50 - mousePosition.x) / 2}%, ${mousePosition.y < 50 ? '' : '-'}${Math.abs(50 - mousePosition.y) / 2}%)`,
+                    cursor: 'zoom-out'
+                  } : {}}
+                  onClick={toggleZoom}
+                />
+              </div>
+
+              {/* Navigation Arrows */}
+              {images.length > 1 && (
+                <>
+                  <button
+                    onClick={handlePrevious}
+                    className="absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 hover:bg-black/70 transition-colors text-white"
+                  >
+                    <ChevronLeft className="h-5 w-5" />
+                  </button>
+                  <button
+                    onClick={handleNext}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-2 rounded-full bg-black/50 hover:bg-black/70 transition-colors text-white"
+                  >
+                    <ChevronRight className="h-5 w-5" />
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Thumbnails in Modal */}
+            {images.length > 1 && (
+              <div className="flex gap-2 mt-3 overflow-x-auto pb-1 justify-center custom-scrollbar">
+                {images.map((img, index) => (
+                  <button
+                    key={index}
+                    onClick={() => {
+                      setSelectedIndex(index);
+                      setImageLoaded(false);
+                      setIsZoomed(false);
+                    }}
+                    className={`flex-shrink-0 w-14 h-14 rounded-lg overflow-hidden border-2 transition-all duration-200 ${
+                      selectedIndex === index
+                        ? 'border-white shadow-lg scale-105'
+                        : 'border-white/30 hover:border-white/60'
+                    }`}
+                  >
+                    <img
+                      src={img}
+                      alt={`Thumbnail ${index + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
+// Main Product Detail Modal
 export default function ProductDetailModal({ product, onClose, onQuote }) {
   const [currentImage, setCurrentImage] = useState(0);
   const modalRef = useRef(null);
@@ -32,13 +324,13 @@ export default function ProductDetailModal({ product, onClose, onQuote }) {
   if (!product) return null;
 
   const images = product.images || [];
-  
+
   const stockStatus = product.stockQuantity <= 0 ? 'Out of Stock' :
-                     product.stockQuantity <= 10 ? 'Low Stock' : 'In Stock';
+    product.stockQuantity <= 10 ? 'Low Stock' : 'In Stock';
   const stockColor = product.stockQuantity <= 0 ? 'text-error' :
-                    product.stockQuantity <= 10 ? 'text-warning' : 'text-success';
+    product.stockQuantity <= 10 ? 'text-warning' : 'text-success';
   const stockBg = product.stockQuantity <= 0 ? 'bg-error/10' :
-                 product.stockQuantity <= 10 ? 'bg-warning/10' : 'bg-success/10';
+    product.stockQuantity <= 10 ? 'bg-warning/10' : 'bg-success/10';
 
   const formatPrice = (price) => {
     if (!price) return 'Price on request';
@@ -65,11 +357,11 @@ export default function ProductDetailModal({ product, onClose, onQuote }) {
   };
 
   return (
-    <div 
+    <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm"
       ref={modalRef}
     >
-      <div 
+      <div
         className="bg-card rounded-xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
@@ -79,8 +371,8 @@ export default function ProductDetailModal({ product, onClose, onQuote }) {
             <Package className="h-5 w-5 text-primary" />
             <h3 className="text-xl font-semibold text-foreground">Product Details</h3>
           </div>
-          <button 
-            onClick={onClose} 
+          <button
+            onClick={onClose}
             className="p-1 rounded-lg hover:bg-muted/10 transition-colors"
             aria-label="Close modal"
           >
@@ -89,28 +381,15 @@ export default function ProductDetailModal({ product, onClose, onQuote }) {
         </div>
 
         {/* Content - Scrollable */}
-        <div 
+        <div
           ref={contentRef}
           className="overflow-y-auto flex-1 p-6"
           style={{ overscrollBehavior: 'contain' }}
         >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Images - Lazy loaded */}
+            {/* Images with Advanced Viewer */}
             <div>
-              <Suspense fallback={<ModalLoadingFallback />}>
-                {images.length > 0 ? (
-                  <ImageGallery 
-                    images={images} 
-                    currentImage={currentImage}
-                    onImageChange={setCurrentImage}
-                    alt={product.name}
-                  />
-                ) : (
-                  <div className="aspect-square bg-muted/10 rounded-lg flex items-center justify-center">
-                    <Package className="h-16 w-16 text-muted/40" />
-                  </div>
-                )}
-              </Suspense>
+              <ProductImageViewer images={images} productName={product.name} />
             </div>
 
             {/* Details - Memoized */}
@@ -157,7 +436,7 @@ export default function ProductDetailModal({ product, onClose, onQuote }) {
                 </div>
               )}
 
-              {/* Additional Info - Memoized */}
+              {/* Additional Info */}
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="p-2 bg-muted/5 rounded-lg">
                   <span className="text-muted">Category</span>
