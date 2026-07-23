@@ -1,15 +1,9 @@
-// app/api/admin/products/upload/route.js - Updated with hasBusinessAccess
+// app/api/admin/products/upload/route.js - Fixed without config export
 import { NextResponse } from 'next/server';
 import { verifyAccessToken } from '@/lib/auth/jwt';
-import { hasBusinessAccess } from '@/lib/auth/permissions'; // Changed
+import { hasBusinessAccess } from '@/lib/auth/permissions';
 import { saveImage, deleteImage } from '@/lib/upload';
 import { logSecurityEvent } from '@/lib/security-log';
-
-export const config = {
-  api: {
-    bodyParser: false,
-  },
-};
 
 export async function POST(request) {
   try {

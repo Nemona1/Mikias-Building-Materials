@@ -1,8 +1,8 @@
+// next.config.mjs - Remove onError
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  devIndicators: false,  
-  
+  devIndicators: false,
   
   images: {
     remotePatterns: [
@@ -22,13 +22,23 @@ const nextConfig = {
     ],
   },
   
-  // Fix turbopack root warning
   turbopack: {
     root: process.cwd(),
   },
   
-  // Security headers
   poweredByHeader: false,
+  
+  serverExternalPackages: ['fs', 'path', 'child_process'],
+  
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      config.ignoreWarnings = [
+        { module: /backup/ },
+        { message: /Critical dependency/ },
+      ];
+    }
+    return config;
+  },
 };
 
 export default nextConfig;

@@ -1,7 +1,7 @@
-// app/products/page.jsx - Fixed with proper image handling using relative paths
+// app/products/page.jsx - Fixed with Suspense
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -37,9 +37,6 @@ const ProductImage = ({ images, name, className = '' }) => {
   const imageUrl = getPrimaryImage(images);
   const [imgError, setImgError] = useState(false);
 
-  // Log the image URL for debugging
-  console.log('[ProductImage] URL:', imageUrl, 'for product:', name);
-
   if (!imageUrl || imgError) {
     return (
       <div className={`h-full w-full flex items-center justify-center bg-muted/10 ${className}`}>
@@ -56,16 +53,14 @@ const ProductImage = ({ images, name, className = '' }) => {
       src={imageUrl}
       alt={name || 'Product image'}
       className={`h-full w-full object-cover ${className}`}
-      onError={(e) => {
-        console.error('[Image Error] Failed to load:', imageUrl);
-        setImgError(true);
-      }}
+      onError={() => setImgError(true)}
       loading="lazy"
     />
   );
 };
 
-export default function ProductsPage() {
+// Products content component - extracted to avoid Suspense issues
+function ProductsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [products, setProducts] = useState([]);
@@ -102,15 +97,6 @@ export default function ProductsPage() {
       
       if (res.ok) {
         const data = await res.json();
-        console.log('[ProductsPage] Raw product data:', data.products);
-        
-        // Log image data for debugging
-        if (data.products && data.products.length > 0) {
-          data.products.forEach(p => {
-            console.log(`[ProductsPage] ${p.name} images:`, p.images);
-          });
-        }
-        
         setProducts(data.products || []);
         setPagination(data.pagination || { page: currentPage, limit: 12, total: 0, totalPages: 0 });
         
@@ -513,5 +499,23 @@ export default function ProductsPage() {
         />
       )}
     </PublicLayout>
+  );
+}
+
+// Main page with Suspense
+export default function ProductsPage() {
+  return (
+    <Suspense fallback={
+      <PublicLayout activeSection="products">
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <div className="spinner h-8 w-8 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto"></div>
+            <p className="mt-4 text-muted">Loading products...</p>
+          </div>
+        </div>
+      </PublicLayout>
+    }>
+      <ProductsContent />
+    </Suspense>
   );
 }

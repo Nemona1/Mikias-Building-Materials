@@ -1,4 +1,4 @@
-// app/layout.js - Enhanced with performance optimizations
+// app/layout.js - Enhanced with performance optimizations and fixed metadata
 import { Inter } from 'next/font/google';
 import { Toaster } from 'react-hot-toast';
 import { ThemeProvider } from './providers';
@@ -15,7 +15,6 @@ const inter = Inter({
   variable: '--font-inter',
   display: 'swap',
   preload: true,
-  // Add fallback for faster loading
   fallback: ['system-ui', 'sans-serif'],
 });
 
@@ -24,7 +23,21 @@ let cachedMetadata = null;
 let metadataCacheTime = 0;
 const METADATA_CACHE_TTL = 60000; // 1 minute
 
-// Optimized metadata generation with caching
+// Separate viewport export (fixes warning)
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
+  themeColor: [
+    { media: '(prefers-color-scheme: light)', color: '#ffffff' },
+    { media: '(prefers-color-scheme: dark)', color: '#0f172a' },
+  ],
+};
+
+// metadataBase for resolving social open graph or twitter images
+export const metadataBase = new URL(process.env.NEXTAUTH_URL || 'http://localhost:3000');
+
+// Optimized metadata generation with caching - removed viewport/themeColor
 export async function generateMetadata() {
   // Check cache first
   if (cachedMetadata && Date.now() - metadataCacheTime < METADATA_CACHE_TTL) {
@@ -39,15 +52,17 @@ export async function generateMetadata() {
     ]);
 
     const metadata = {
+      metadataBase: new URL(process.env.NEXTAUTH_URL || 'http://localhost:3000'),
       title: siteName || 'Mikias Building Materials',
       description: siteDescription || 'Quality Building Materials, Hardware, Sanitary & Electrical Supplies in Addis Ababa',
-      // Add Open Graph tags for better SEO
+      // Open Graph tags
       openGraph: {
         title: siteName || 'Mikias Building Materials',
         description: siteDescription || 'Quality Building Materials, Hardware, Sanitary & Electrical Supplies in Addis Ababa',
         type: 'website',
         locale: 'en_US',
         siteName: siteName || 'Mikias Building Materials',
+        url: process.env.NEXTAUTH_URL || 'http://localhost:3000',
         images: [
           {
             url: '/og-image.jpg',
@@ -57,7 +72,7 @@ export async function generateMetadata() {
           },
         ],
       },
-      // Add Twitter card for better social sharing
+      // Twitter card
       twitter: {
         card: 'summary_large_image',
         title: siteName || 'Mikias Building Materials',
@@ -66,18 +81,7 @@ export async function generateMetadata() {
         creator: '@mikiasbuilding',
         site: '@mikiasbuilding',
       },
-      // Add viewport meta for better mobile performance
-      viewport: {
-        width: 'device-width',
-        initialScale: 1,
-        maximumScale: 5,
-      },
-      // Add theme color for better mobile experience
-      themeColor: [
-        { media: '(prefers-color-scheme: light)', color: '#ffffff' },
-        { media: '(prefers-color-scheme: dark)', color: '#0f172a' },
-      ],
-      // Add robots meta for better SEO
+      // Robots meta
       robots: {
         index: true,
         follow: true,
@@ -89,12 +93,12 @@ export async function generateMetadata() {
           'max-snippet': -1,
         },
       },
-      // Add verification for search engines
+      // Verification
       verification: {
         google: 'your-google-verification-code',
         yandex: 'your-yandex-verification-code',
       },
-      // Add other metadata
+      // Other metadata
       category: 'construction',
       keywords: ['building materials', 'hardware', 'sanitary', 'electrical', 'construction', 'Addis Ababa', 'Ethiopia'],
       authors: [{ name: 'Mikias Ayele Building Materials' }],
@@ -118,9 +122,9 @@ export async function generateMetadata() {
     console.error('Failed to generate metadata:', error);
     // Return fallback metadata
     return {
+      metadataBase: new URL(process.env.NEXTAUTH_URL || 'http://localhost:3000'),
       title: 'Mikias Building Materials',
       description: 'Quality Building Materials, Hardware, Sanitary & Electrical Supplies in Addis Ababa',
-      viewport: 'width=device-width, initial-scale=1',
       robots: 'index, follow',
     };
   }
@@ -143,9 +147,9 @@ export default function RootLayout({ children }) {
         {/* Preload critical assets */}
         <link rel="preload" href="/one.png" as="image" />
         <link rel="preload" href="/two.png" as="image" />
+        <link rel="preload" href="/zero.png" as="image" />
       </head>
       <body className={`${inter.className} antialiased`}>
-        {/* Wrap providers in a fragment for better performance */}
         <ThemeProvider>
           <SidebarProvider>
             <AuthProvider>
@@ -176,7 +180,6 @@ export default function RootLayout({ children }) {
                       secondary: 'var(--color-background)',
                     },
                   },
-                  // Add loading toast style
                   loading: {
                     duration: 2000,
                     style: {

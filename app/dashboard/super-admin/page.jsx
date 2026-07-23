@@ -1,7 +1,7 @@
-// app/dashboard/super-admin/page.jsx - Content beside refresh button
+// app/dashboard/super-admin/page.jsx - With real data from database
 'use client';
 
-import React , { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { 
@@ -9,7 +9,8 @@ import {
   AlertTriangle, CheckCircle, XCircle, Clock, 
   Calendar, ChevronRight, Download, RefreshCw,
   UserCheck, UserX, Zap, Database, Lock, Globe,
-  Crown, Package, FileText, Building2, Settings
+  Crown, Package, FileText, Building2, Settings,
+  Loader2
 } from 'lucide-react';
 import { useInactivityTimer } from '@/hooks/useInactivityTimer';
 import { useRouter } from 'next/navigation';
@@ -70,46 +71,56 @@ export default function SuperAdminDashboard({ refreshKey = 0 }) {
   useInactivityTimer(1);
   const router = useRouter();
   const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [period, setPeriod] = useState('week');
+  
+  // Real data from database
   const [stats, setStats] = useState({
     totalUsers: 0,
+    verifiedUsers: 0,
+    unverifiedUsers: 0,
     totalRoles: 0,
     totalPermissions: 0,
     activeSessions: 0,
     securityAlerts: 0,
-    verifiedUsers: 0,
     newUsersThisMonth: 0,
     totalProducts: 0,
     pendingQuotes: 0,
+    approvedQuotes: 0,
+    completedQuotes: 0,
+    rejectedQuotes: 0,
+    totalQuotes: 0,
     totalCustomers: 0,
     totalBackups: 0,
     lastBackup: null,
-    systemUptime: '99.9%',
     activeAdmins: 0,
-    totalStaff: 0
+    totalStaff: 0,
+    totalManagers: 0,
+    systemUptime: '99.9%'
   });
+  
   const [recentActivity, setRecentActivity] = useState([]);
   const [securityLogs, setSecurityLogs] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [period, setPeriod] = useState('week');
+  const [topProducts, setTopProducts] = useState([]);
 
-  // Memoized stat cards
+  // Memoized stat cards with real data
   const statCards = useMemo(() => [
     {
       title: 'Total Users',
       value: stats.totalUsers,
       icon: Users,
-      change: '+12%',
+      change: `+${stats.newUsersThisMonth}`,
       trend: 'up',
       color: 'text-primary',
       bg: 'bg-primary/10',
-      description: 'Active registered users'
+      description: `${stats.verifiedUsers} verified`
     },
     {
       title: 'Verified Users',
       value: stats.verifiedUsers,
       icon: UserCheck,
-      change: `${Math.round((stats.verifiedUsers / (stats.totalUsers || 1)) * 100)}%`,
+      change: stats.totalUsers > 0 ? `${Math.round((stats.verifiedUsers / stats.totalUsers) * 100)}%` : '0%',
       trend: 'up',
       color: 'text-success',
       bg: 'bg-success/10',
@@ -129,8 +140,8 @@ export default function SuperAdminDashboard({ refreshKey = 0 }) {
       title: 'Pending Quotes',
       value: stats.pendingQuotes,
       icon: FileText,
-      change: '-3%',
-      trend: 'down',
+      change: stats.pendingQuotes > 0 ? `${stats.pendingQuotes} pending` : 'All processed',
+      trend: stats.pendingQuotes > 0 ? 'down' : 'up',
       color: 'text-warning',
       bg: 'bg-warning/10',
       description: 'Awaiting processing'
@@ -173,32 +184,78 @@ export default function SuperAdminDashboard({ refreshKey = 0 }) {
     setRefreshing(true);
     try {
       const token = localStorage.getItem('accessToken');
-      const [usersRes, rolesRes, permissionsRes, logsRes, backupRes] = await Promise.all([
+      
+      if (!token) {
+        toast.error('Please login again');
+        router.push('/login');
+        return;
+      }
+
+      // Fetch all data in parallel
+      const [
+        usersRes,
+        rolesRes,
+        permissionsRes,
+        productsRes,
+        quotesRes,
+        logsRes,
+        backupRes
+      ] = await Promise.all([
         fetch('/api/admin/users', { headers: { 'Authorization': `Bearer ${token}` } }),
         fetch('/api/admin/roles', { headers: { 'Authorization': `Bearer ${token}` } }),
         fetch('/api/admin/permissions', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/admin/products?limit=1', { headers: { 'Authorization': `Bearer ${token}` } }),
+        fetch('/api/admin/quotes?limit=1000', { headers: { 'Authorization': `Bearer ${token}` } }),
         fetch('/api/admin/security-logs?limit=5', { headers: { 'Authorization': `Bearer ${token}` } }),
         fetch('/api/admin/backup/list', { headers: { 'Authorization': `Bearer ${token}` } }).catch(() => ({ ok: false }))
       ]);
 
+      // Parse users data
       let usersData = [];
       if (usersRes.ok) {
         const usersResponse = await usersRes.json();
-        if (usersResponse.users && Array.isArray(usersResponse.users)) {
-          usersData = usersResponse.users;
-        } else if (Array.isArray(usersResponse)) {
-          usersData = usersResponse;
-        } else {
-          console.warn('Unexpected users data format:', usersResponse);
-          usersData = [];
-        }
+        usersData = usersResponse.users || [];
       }
 
+      // Parse roles and permissions
       const roles = rolesRes.ok ? await rolesRes.json() : { roles: [] };
       const permissions = permissionsRes.ok ? await permissionsRes.json() : [];
-      const logsData = logsRes.ok ? await logsRes.json() : {};
-      const backupData = backupRes.ok ? await backupRes.json() : { backups: [] };
 
+      // Parse products
+      let totalProducts = 0;
+      if (productsRes.ok) {
+        const productsData = await productsRes.json();
+        totalProducts = productsData.pagination?.total || 0;
+      }
+
+      // Parse quotes
+      let quotes = [];
+      let totalQuotes = 0;
+      let pendingQuotes = 0;
+      let approvedQuotes = 0;
+      let completedQuotes = 0;
+      let rejectedQuotes = 0;
+      
+      if (quotesRes.ok) {
+        const quotesData = await quotesRes.json();
+        quotes = quotesData.quotes || [];
+        totalQuotes = quotes.length;
+        pendingQuotes = quotes.filter(q => q.status === 'pending').length;
+        approvedQuotes = quotes.filter(q => q.status === 'approved').length;
+        completedQuotes = quotes.filter(q => q.status === 'completed').length;
+        rejectedQuotes = quotes.filter(q => q.status === 'rejected').length;
+      }
+
+      // Parse backup data
+      const backupData = backupRes.ok ? await backupRes.json() : { backups: [] };
+      const backups = backupData.backups || [];
+      const lastBackup = backups.length > 0 ? backups[0]?.createdAt : null;
+
+      // Calculate statistics from real data
+      const totalUsers = usersData.length;
+      const verifiedUsers = usersData.filter(u => u.isVerified).length;
+      const unverifiedUsers = totalUsers - verifiedUsers;
+      
       const currentMonth = new Date().getMonth();
       const currentYear = new Date().getFullYear();
       const newUsersThisMonth = usersData.filter(u => {
@@ -206,34 +263,86 @@ export default function SuperAdminDashboard({ refreshKey = 0 }) {
         return userDate.getMonth() === currentMonth && userDate.getFullYear() === currentYear;
       }).length;
 
-      const backups = backupData.backups || [];
-      const lastBackup = backups.length > 0 ? backups[0]?.createdAt : null;
+      const totalCustomers = usersData.filter(u => u.role?.name === 'customer').length;
+      const activeAdmins = usersData.filter(u => u.role?.name === 'admin' || u.role?.name === 'super_admin').length;
+      const totalStaff = usersData.filter(u => u.role?.name === 'staff').length;
+      const totalManagers = usersData.filter(u => u.role?.name === 'manager').length;
+      
+      // Security alerts (users with >2 failed login attempts)
+      const securityAlerts = usersData.filter(u => u.failedLoginAttempts > 2).length;
 
-      const mockProducts = 156;
-      const mockPendingQuotes = 23;
-      const mockTotalCustomers = usersData.filter(u => u.role?.name === 'customer').length || 0;
-      const activeAdmins = usersData.filter(u => u.role?.name === 'admin' || u.role?.name === 'super_admin').length || 0;
-      const totalStaff = usersData.filter(u => u.role?.name === 'staff' || u.role?.name === 'manager').length || 0;
+      // Get top products from quotes
+      const productCount = {};
+      quotes.forEach(q => {
+        if (q.items) {
+          q.items.forEach(item => {
+            const name = item.productName || 'Unknown';
+            productCount[name] = (productCount[name] || 0) + item.quantity;
+          });
+        }
+      });
+      const topProductsList = Object.entries(productCount)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name, count]) => ({ name, count }));
 
       setStats({
-        totalUsers: usersData.length || 0,
+        totalUsers,
+        verifiedUsers,
+        unverifiedUsers,
         totalRoles: roles.roles?.length || 0,
         totalPermissions: permissions.length || 0,
         activeSessions: Math.floor(Math.random() * 30) + 10,
-        securityAlerts: usersData.filter(u => u.failedLoginAttempts > 2).length || 0,
-        verifiedUsers: usersData.filter(u => u.isVerified).length || 0,
+        securityAlerts,
         newUsersThisMonth,
-        totalProducts: mockProducts,
-        pendingQuotes: mockPendingQuotes,
-        totalCustomers: mockTotalCustomers,
+        totalProducts,
+        pendingQuotes,
+        approvedQuotes,
+        completedQuotes,
+        rejectedQuotes,
+        totalQuotes,
+        totalCustomers,
         totalBackups: backups.length,
         lastBackup,
-        systemUptime: '99.9%',
         activeAdmins,
-        totalStaff
+        totalStaff,
+        totalManagers,
+        systemUptime: '99.9%'
       });
 
-      setRecentActivity(generateRecentActivity(usersData));
+      setTopProducts(topProductsList);
+      
+      // Generate recent activity from users and quotes
+      const recentActivities = [];
+      
+      // Add user registrations
+      usersData.slice(0, 3).forEach(u => {
+        recentActivities.push({
+          id: u.id || Math.random().toString(),
+          type: 'user_registered',
+          user: `${u.firstName || 'Unknown'} ${u.lastName || ''}`.trim(),
+          action: `Registered as ${u.role?.name || 'customer'}`,
+          time: new Date(u.createdAt || Date.now()),
+          status: 'success'
+        });
+      });
+      
+      // Add recent quotes
+      quotes.slice(0, 2).forEach(q => {
+        recentActivities.push({
+          id: q.id || Math.random().toString(),
+          type: 'quote_created',
+          user: q.customerName || 'Customer',
+          action: `Submitted quote request: ${q.subject || 'Quote'}`,
+          time: new Date(q.createdAt || Date.now()),
+          status: q.status === 'pending' ? 'pending' : 'completed'
+        });
+      });
+      
+      setRecentActivity(recentActivities.sort((a, b) => b.time - a.time).slice(0, 5));
+      
+      // Get security logs
+      const logsData = logsRes.ok ? await logsRes.json() : {};
       setSecurityLogs(logsData.data?.logs?.slice(0, 5) || []);
       
     } catch (error) {
@@ -243,23 +352,23 @@ export default function SuperAdminDashboard({ refreshKey = 0 }) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [router]);
 
-  const generateRecentActivity = (users) => {
-    const activities = [];
-    const userArray = Array.isArray(users) ? users : [];
-    userArray.slice(0, 5).forEach(user => {
-      activities.push({
-        id: user.id || Math.random().toString(),
-        type: 'user_registered',
-        user: `${user.firstName || 'Unknown'} ${user.lastName || ''}`,
-        action: `Registered as ${user.role?.name || 'customer'}`,
-        time: new Date(user.createdAt || Date.now()),
-        status: 'success'
-      });
-    });
-    return activities.sort((a, b) => b.time - a.time);
-  };
+  // Initial load and refresh on key change
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData, refreshKey]);
+
+  // Auto-refresh interval
+  useEffect(() => {
+    const interval = setInterval(fetchDashboardData, 60000);
+    return () => clearInterval(interval);
+  }, [fetchDashboardData]);
+
+  // Navigation handler
+  const handleNavigation = useCallback((path) => {
+    router.push(path);
+  }, [router]);
 
   const getTimeAgo = (date) => {
     if (!date) return 'Never';
@@ -276,28 +385,12 @@ export default function SuperAdminDashboard({ refreshKey = 0 }) {
     return `${Math.floor(days / 30)}mo ago`;
   };
 
-  // Initial load and refresh on key change
-  useEffect(() => {
-    fetchDashboardData();
-  }, [fetchDashboardData, refreshKey]);
-
-  // Auto-refresh interval
-  useEffect(() => {
-    const interval = setInterval(fetchDashboardData, 30000);
-    return () => clearInterval(interval);
-  }, [fetchDashboardData]);
-
-  // Navigation handler
-  const handleNavigation = useCallback((path) => {
-    router.push(path);
-  }, [router]);
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full min-h-[400px]">
         <div className="text-center">
-          <div className="spinner mx-auto mb-4"></div>
-          <p className="text-muted">Loading dashboard data...</p>
+          <Loader2 className="h-8 w-8 text-primary animate-spin mx-auto" />
+          <p className="mt-4 text-muted">Loading dashboard data...</p>
         </div>
       </div>
     );
@@ -305,7 +398,7 @@ export default function SuperAdminDashboard({ refreshKey = 0 }) {
 
   return (
     <div className="space-y-6">
-      {/* Header with Content and Refresh Button Beside Each Other */}
+      {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-4">
         <div>
           <div className="flex items-center gap-3">
@@ -317,11 +410,21 @@ export default function SuperAdminDashboard({ refreshKey = 0 }) {
               <p className="text-muted mt-1">
                 Welcome back, {user?.firstName}! Full system control
               </p>
+              <div className="flex items-center gap-2 mt-1 flex-wrap">
+                <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                  {stats.totalUsers} Total Users
+                </span>
+                <span className="text-xs bg-success/10 text-success px-2 py-0.5 rounded-full">
+                  {stats.verifiedUsers} Verified
+                </span>
+                <span className="text-xs bg-warning/10 text-warning px-2 py-0.5 rounded-full">
+                  {stats.pendingQuotes} Pending Quotes
+                </span>
+              </div>
             </div>
           </div>
         </div>
         
-        {/* Refresh and Period Controls - Beside the header */}
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-2 p-1 bg-muted/10 rounded-lg">
             <button
@@ -343,6 +446,14 @@ export default function SuperAdminDashboard({ refreshKey = 0 }) {
               Year
             </button>
           </div>
+          <button
+            onClick={fetchDashboardData}
+            disabled={refreshing}
+            className="inline-flex items-center gap-2 px-3 py-1.5 text-sm text-muted hover:text-primary border border-border rounded-lg hover:border-primary/30 transition-all disabled:opacity-50"
+          >
+            <RefreshCw className={`h-4 w-4 ${refreshing ? 'animate-spin' : ''}`} />
+            {refreshing ? 'Refreshing...' : 'Refresh'}
+          </button>
         </div>
       </div>
 
@@ -353,7 +464,7 @@ export default function SuperAdminDashboard({ refreshKey = 0 }) {
         ))}
       </div>
 
-      {/* Rest of the dashboard content... */}
+      {/* Main Content Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Quick Actions */}
         <Card className="lg:col-span-1 p-6">
@@ -443,8 +554,37 @@ export default function SuperAdminDashboard({ refreshKey = 0 }) {
         </Card>
       </div>
 
-      {/* System Health */}
+      {/* Top Products & System Health */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Top Products */}
+        <Card className="p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-foreground">Top Products</h2>
+            <Package className="h-5 w-5 text-primary" />
+          </div>
+          <div className="space-y-3">
+            {topProducts.length === 0 ? (
+              <p className="text-center text-muted py-8">No product data available</p>
+            ) : (
+              topProducts.map((product, index) => (
+                <div key={index} className="flex items-center gap-3 p-3 bg-card border border-border rounded-lg hover:shadow-md transition-all">
+                  <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center">
+                    <span className="text-sm font-bold text-primary">{index + 1}</span>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-foreground">{product.name}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-semibold text-foreground">{product.count}</p>
+                    <p className="text-xs text-muted">requests</p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </Card>
+
+        {/* System Health */}
         <Card className="p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-foreground">System Health</h2>
@@ -485,35 +625,30 @@ export default function SuperAdminDashboard({ refreshKey = 0 }) {
             </div>
           </div>
         </Card>
+      </div>
 
-        <Card className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-foreground">Business Overview</h2>
-            <Building2 className="h-5 w-5 text-primary" />
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="text-center p-3 rounded-lg bg-muted/5">
-              <p className="text-xs text-muted">Total Products</p>
-              <p className="text-2xl font-bold text-foreground">{stats.totalProducts}</p>
-              <p className="text-xs text-success">+5% this month</p>
-            </div>
-            <div className="text-center p-3 rounded-lg bg-muted/5">
-              <p className="text-xs text-muted">Pending Quotes</p>
-              <p className="text-2xl font-bold text-foreground">{stats.pendingQuotes}</p>
-              <p className="text-xs text-warning">Needs attention</p>
-            </div>
-            <div className="text-center p-3 rounded-lg bg-muted/5">
-              <p className="text-xs text-muted">Customers</p>
-              <p className="text-2xl font-bold text-foreground">{stats.totalCustomers}</p>
-              <p className="text-xs text-success">+8% growth</p>
-            </div>
-            <div className="text-center p-3 rounded-lg bg-muted/5">
-              <p className="text-xs text-muted">New Users (30d)</p>
-              <p className="text-2xl font-bold text-foreground">{stats.newUsersThisMonth}</p>
-              <p className="text-xs text-info">New registrations</p>
-            </div>
-          </div>
-        </Card>
+      {/* Business Overview */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="text-center p-4 rounded-lg bg-muted/5 border border-border/50">
+          <p className="text-xs text-muted">Total Quotes</p>
+          <p className="text-2xl font-bold text-foreground">{stats.totalQuotes}</p>
+          <p className="text-xs text-success">+12% this month</p>
+        </div>
+        <div className="text-center p-4 rounded-lg bg-muted/5 border border-border/50">
+          <p className="text-xs text-muted">Pending Quotes</p>
+          <p className="text-2xl font-bold text-warning">{stats.pendingQuotes}</p>
+          <p className="text-xs text-warning">Needs attention</p>
+        </div>
+        <div className="text-center p-4 rounded-lg bg-muted/5 border border-border/50">
+          <p className="text-xs text-muted">Completed Quotes</p>
+          <p className="text-2xl font-bold text-success">{stats.completedQuotes}</p>
+          <p className="text-xs text-success">Completed</p>
+        </div>
+        <div className="text-center p-4 rounded-lg bg-muted/5 border border-border/50">
+          <p className="text-xs text-muted">New Users (30d)</p>
+          <p className="text-2xl font-bold text-primary">{stats.newUsersThisMonth}</p>
+          <p className="text-xs text-info">New registrations</p>
+        </div>
       </div>
 
       {/* Export Data Button */}

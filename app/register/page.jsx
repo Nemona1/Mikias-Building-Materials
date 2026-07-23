@@ -1,4 +1,4 @@
-// app/register/page.jsx
+// app/register/page.jsx - Fixed Validation
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -6,21 +6,11 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import toast from 'react-hot-toast';
 import { 
-  User, Mail, Lock, Eye, EyeOff, UserPlus, Rocket, 
-  Phone, Building2, CheckCircle, AlertCircle 
+  User, Mail, Lock, Eye, EyeOff, UserPlus, 
+  Phone, Building2, CheckCircle, AlertCircle,
+  Shield, Key, Clock
 } from 'lucide-react';
 import ThemeToggle from '@/components/ui/ThemeToggle';
-
-// Demo account for development
-const DEMO_ACCOUNT = {
-  firstName: 'Nemona',
-  lastName: 'Hirko',
-  email: 'nimona2024hirko@gmail.com',
-  phone: '+251912345678',
-  companyName: 'Nemo Tech',
-  password: 'Nimo@1234',
-  confirmPassword: 'Nimo@1234'
-};
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -39,19 +29,7 @@ export default function RegisterPage() {
   });
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
-
-  // Auto-fill demo account for development
-  useEffect(() => {
-    if (process.env.NODE_ENV === 'development') {
-      setFormData(DEMO_ACCOUNT);
-      // Set password strength for demo
-      setPasswordStrength({
-        score: 4,
-        label: 'Strong',
-        color: 'text-green-600 dark:text-green-400'
-      });
-    }
-  }, []);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
 
   // Password strength checker
   const checkPasswordStrength = (password) => {
@@ -86,12 +64,11 @@ export default function RegisterPage() {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
     
-    // Clear error for this field
+    // Clear error for this field when user types
     if (errors[name]) {
       setErrors(prev => ({ ...prev, [name]: '' }));
     }
 
-    // Check password strength
     if (name === 'password') {
       setPasswordStrength(checkPasswordStrength(value));
     }
@@ -134,7 +111,9 @@ export default function RegisterPage() {
         }
         break;
       case 'confirmPassword':
-        if (value !== formData.password) {
+        if (!value) {
+          newErrors.confirmPassword = 'Please confirm your password';
+        } else if (value !== formData.password) {
           newErrors.confirmPassword = 'Passwords do not match';
         }
         break;
@@ -147,40 +126,58 @@ export default function RegisterPage() {
   const validateForm = () => {
     const newErrors = {};
     
+    // Validate all fields
     if (!formData.firstName.trim()) newErrors.firstName = 'First name is required';
     if (!formData.lastName.trim()) newErrors.lastName = 'Last name is required';
+    
     if (!formData.email.trim()) {
       newErrors.email = 'Email is required';
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
       newErrors.email = 'Please enter a valid email address';
     }
+    
     if (!formData.password) {
       newErrors.password = 'Password is required';
     } else if (formData.password.length < 8) {
       newErrors.password = 'Password must be at least 8 characters';
     }
-    if (formData.password !== formData.confirmPassword) {
+    
+    if (!formData.confirmPassword) {
+      newErrors.confirmPassword = 'Please confirm your password';
+    } else if (formData.password !== formData.confirmPassword) {
       newErrors.confirmPassword = 'Passwords do not match';
     }
+    
     if (formData.phone && !/^\+?[0-9\s\-()]{10,}$/.test(formData.phone.replace(/\s/g, ''))) {
       newErrors.phone = 'Please enter a valid phone number';
     }
+    
+    // Terms agreement is optional for now (commented out)
+    // if (!agreedToTerms) {
+    //   newErrors.terms = 'You must agree to the Terms of Service';
+    // }
 
     setErrors(newErrors);
+    
+    // Show toast with specific error messages
+    if (Object.keys(newErrors).length > 0) {
+      const firstError = Object.values(newErrors)[0];
+      toast.error(firstError);
+    }
+    
     return Object.keys(newErrors).length === 0;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // Touch all fields to show errors
-    const allFields = ['firstName', 'lastName', 'email', 'password', 'confirmPassword'];
+    // Mark all fields as touched to show errors
+    const allFields = ['firstName', 'lastName', 'email', 'password', 'confirmPassword', 'phone'];
     const touchedObj = {};
     allFields.forEach(field => { touchedObj[field] = true; });
     setTouched(touchedObj);
 
     if (!validateForm()) {
-      toast.error('Please fix the errors before submitting');
       return;
     }
 
@@ -191,11 +188,11 @@ export default function RegisterPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          firstName: formData.firstName,
-          lastName: formData.lastName,
-          email: formData.email,
-          phone: formData.phone,
-          companyName: formData.companyName,
+          firstName: formData.firstName.trim(),
+          lastName: formData.lastName.trim(),
+          email: formData.email.trim(),
+          phone: formData.phone.trim(),
+          companyName: formData.companyName.trim(),
           password: formData.password
         })
       });
@@ -211,20 +208,11 @@ export default function RegisterPage() {
         toast.error(data.error || 'Registration failed');
       }
     } catch (error) {
+      console.error('Registration error:', error);
       toast.error('Network error. Please try again.');
     } finally {
       setLoading(false);
     }
-  };
-
-  const fillDemoAccount = () => {
-    setFormData(DEMO_ACCOUNT);
-    setPasswordStrength({
-      score: 4,
-      label: 'Strong',
-      color: 'text-green-600 dark:text-green-400'
-    });
-    toast.success('Demo account loaded!');
   };
 
   return (
@@ -234,38 +222,38 @@ export default function RegisterPage() {
       </div>
       
       <div className="max-w-md w-full space-y-8">
-        <div>
-          <div className="flex justify-center">
-            <div className="h-16 w-16 bg-primary rounded-full flex items-center justify-center shadow-glow">
-              <UserPlus className="h-8 w-8 text-white" />
-            </div>
+        {/* Header */}
+        <div className="text-center">
+          <div className="h-16 w-16 bg-gradient-to-br from-primary to-primary-hover rounded-2xl flex items-center justify-center mx-auto shadow-lg transform hover:scale-105 transition-transform duration-300">
+            <UserPlus className="h-8 w-8 text-white" />
           </div>
-          <h2 className="mt-6 text-center text-3xl font-extrabold text-foreground">
+          <h2 className="mt-4 text-3xl font-bold text-foreground">
             Create Account
           </h2>
-          <p className="mt-2 text-center text-sm text-muted">
+          <p className="mt-2 text-sm text-muted">
             Join Mikias Building Materials today
           </p>
         </div>
         
-        {/* Demo Account Button - Development Only */}
-        {process.env.NODE_ENV === 'development' && (
-          <div className="mb-2">
-            <button
-              type="button"
-              onClick={fillDemoAccount}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-primary/10 border border-primary/20 rounded-lg text-primary hover:bg-primary/20 transition-all duration-200"
-            >
-              <Rocket className="h-4 w-4" />
-              <span className="text-sm font-medium">Quick Fill Demo Account</span>
-            </button>
-            <p className="text-xs text-center text-muted mt-2">
-              Demo: Nemona Hirko / nimona2024hirko@gmail.com
-            </p>
+        {/* Security Badge - Commented out as requested */}
+        {/* <div className="bg-primary/5 border border-primary/20 rounded-lg p-3">
+          <div className="flex items-center justify-center gap-4 text-xs text-muted">
+            <div className="flex items-center gap-1">
+              <Shield className="h-3 w-3 text-primary" />
+              <span>Secure Registration</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Key className="h-3 w-3 text-primary" />
+              <span>256-bit Encryption</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <Clock className="h-3 w-3 text-primary" />
+              <span>Email Verification</span>
+            </div>
           </div>
-        )}
+        </div> */}
         
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+        <form className="mt-6 space-y-6" onSubmit={handleSubmit}>
           <div className="space-y-4">
             {/* Name Fields */}
             <div className="grid grid-cols-2 gap-4">
@@ -285,12 +273,19 @@ export default function RegisterPage() {
                     value={formData.firstName}
                     onChange={handleChange}
                     onBlur={handleBlur}
-                    className={`input-field pl-10 ${errors.firstName && touched.firstName ? 'border-error focus:border-error' : ''}`}
+                    className={`w-full pl-10 pr-3 py-2.5 rounded-lg border ${
+                      errors.firstName && touched.firstName 
+                        ? 'border-error focus:border-error' 
+                        : 'border-border focus:ring-2 focus:ring-primary focus:border-transparent'
+                    } bg-card text-foreground transition-all`}
                     placeholder="John"
                   />
                 </div>
                 {errors.firstName && touched.firstName && (
-                  <p className="text-xs text-error mt-1">{errors.firstName}</p>
+                  <p className="text-xs text-error mt-1 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    {errors.firstName}
+                  </p>
                 )}
               </div>
               
@@ -306,11 +301,18 @@ export default function RegisterPage() {
                   value={formData.lastName}
                   onChange={handleChange}
                   onBlur={handleBlur}
-                  className={`input-field ${errors.lastName && touched.lastName ? 'border-error focus:border-error' : ''}`}
+                  className={`w-full px-3 py-2.5 rounded-lg border ${
+                    errors.lastName && touched.lastName 
+                      ? 'border-error focus:border-error' 
+                      : 'border-border focus:ring-2 focus:ring-primary focus:border-transparent'
+                  } bg-card text-foreground transition-all`}
                   placeholder="Doe"
                 />
                 {errors.lastName && touched.lastName && (
-                  <p className="text-xs text-error mt-1">{errors.lastName}</p>
+                  <p className="text-xs text-error mt-1 flex items-center gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    {errors.lastName}
+                  </p>
                 )}
               </div>
             </div>
@@ -333,12 +335,19 @@ export default function RegisterPage() {
                   value={formData.email}
                   onChange={handleChange}
                   onBlur={handleBlur}
-                  className={`input-field pl-10 ${errors.email && touched.email ? 'border-error focus:border-error' : ''}`}
+                  className={`w-full pl-10 pr-3 py-2.5 rounded-lg border ${
+                    errors.email && touched.email 
+                      ? 'border-error focus:border-error' 
+                      : 'border-border focus:ring-2 focus:ring-primary focus:border-transparent'
+                  } bg-card text-foreground transition-all`}
                   placeholder="you@example.com"
                 />
               </div>
               {errors.email && touched.email && (
-                <p className="text-xs text-error mt-1">{errors.email}</p>
+                <p className="text-xs text-error mt-1 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  {errors.email}
+                </p>
               )}
               <p className="mt-1 text-xs text-muted">
                 We'll send a verification link to this email
@@ -361,12 +370,19 @@ export default function RegisterPage() {
                   value={formData.phone}
                   onChange={handleChange}
                   onBlur={handleBlur}
-                  className={`input-field pl-10 ${errors.phone && touched.phone ? 'border-error focus:border-error' : ''}`}
+                  className={`w-full pl-10 pr-3 py-2.5 rounded-lg border ${
+                    errors.phone && touched.phone 
+                      ? 'border-error focus:border-error' 
+                      : 'border-border focus:ring-2 focus:ring-primary focus:border-transparent'
+                  } bg-card text-foreground transition-all`}
                   placeholder="+251 912 345 678"
                 />
               </div>
               {errors.phone && touched.phone && (
-                <p className="text-xs text-error mt-1">{errors.phone}</p>
+                <p className="text-xs text-error mt-1 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  {errors.phone}
+                </p>
               )}
             </div>
 
@@ -385,7 +401,7 @@ export default function RegisterPage() {
                   type="text"
                   value={formData.companyName}
                   onChange={handleChange}
-                  className="input-field pl-10"
+                  className="w-full pl-10 pr-3 py-2.5 rounded-lg border border-border bg-card text-foreground focus:ring-2 focus:ring-primary focus:border-transparent transition-all"
                   placeholder="Your company name (optional)"
                 />
               </div>
@@ -408,7 +424,11 @@ export default function RegisterPage() {
                   value={formData.password}
                   onChange={handleChange}
                   onBlur={handleBlur}
-                  className={`input-field pl-10 pr-10 ${errors.password && touched.password ? 'border-error focus:border-error' : ''}`}
+                  className={`w-full pl-10 pr-10 py-2.5 rounded-lg border ${
+                    errors.password && touched.password 
+                      ? 'border-error focus:border-error' 
+                      : 'border-border focus:ring-2 focus:ring-primary focus:border-transparent'
+                  } bg-card text-foreground transition-all`}
                   placeholder="••••••••"
                 />
                 <button
@@ -424,7 +444,10 @@ export default function RegisterPage() {
                 </button>
               </div>
               {errors.password && touched.password && (
-                <p className="text-xs text-error mt-1">{errors.password}</p>
+                <p className="text-xs text-error mt-1 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  {errors.password}
+                </p>
               )}
               
               {/* Password Strength Indicator */}
@@ -456,13 +479,13 @@ export default function RegisterPage() {
                       {formData.password.length >= 8 ? '✓' : '○'} At least 8 characters
                     </li>
                     <li className={/[a-z]/.test(formData.password) && /[A-Z]/.test(formData.password) ? 'text-success' : ''}>
-                      {/[a-z]/.test(formData.password) && /[A-Z]/.test(formData.password) ? '✓' : '○'} Uppercase & lowercase letters
+                      {/[a-z]/.test(formData.password) && /[A-Z]/.test(formData.password) ? '✓' : '○'} Uppercase & lowercase
                     </li>
                     <li className={/\d/.test(formData.password) ? 'text-success' : ''}>
                       {/\d/.test(formData.password) ? '✓' : '○'} At least one number
                     </li>
                     <li className={/[^a-zA-Z\d]/.test(formData.password) ? 'text-success' : ''}>
-                      {/[^a-zA-Z\d]/.test(formData.password) ? '✓' : '○'} At least one special character
+                      {/[^a-zA-Z\d]/.test(formData.password) ? '✓' : '○'} Special character
                     </li>
                   </ul>
                 </div>
@@ -486,7 +509,11 @@ export default function RegisterPage() {
                   value={formData.confirmPassword}
                   onChange={handleChange}
                   onBlur={handleBlur}
-                  className={`input-field pl-10 pr-10 ${errors.confirmPassword && touched.confirmPassword ? 'border-error focus:border-error' : ''}`}
+                  className={`w-full pl-10 pr-10 py-2.5 rounded-lg border ${
+                    errors.confirmPassword && touched.confirmPassword 
+                      ? 'border-error focus:border-error' 
+                      : 'border-border focus:ring-2 focus:ring-primary focus:border-transparent'
+                  } bg-card text-foreground transition-all`}
                   placeholder="••••••••"
                 />
                 <button
@@ -502,7 +529,10 @@ export default function RegisterPage() {
                 </button>
               </div>
               {errors.confirmPassword && touched.confirmPassword && (
-                <p className="text-xs text-error mt-1">{errors.confirmPassword}</p>
+                <p className="text-xs text-error mt-1 flex items-center gap-1">
+                  <AlertCircle className="h-3 w-3" />
+                  {errors.confirmPassword}
+                </p>
               )}
               {formData.confirmPassword && formData.password && formData.confirmPassword === formData.password && (
                 <p className="text-xs text-success mt-1 flex items-center gap-1">
@@ -513,17 +543,51 @@ export default function RegisterPage() {
             </div>
           </div>
 
+          {/* Terms - Commented out as requested */}
+          {/* <div className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              id="terms"
+              checked={agreedToTerms}
+              onChange={(e) => {
+                setAgreedToTerms(e.target.checked);
+                if (errors.terms) {
+                  setErrors(prev => ({ ...prev, terms: '' }));
+                }
+              }}
+              className="mt-1 h-4 w-4 text-primary rounded border-border focus:ring-primary"
+            />
+            <label htmlFor="terms" className="text-xs text-muted">
+              I agree to the{' '}
+              <Link href="/terms" className="text-primary hover:underline">
+                Terms of Service
+              </Link>
+              {' '}and{' '}
+              <Link href="/privacy" className="text-primary hover:underline">
+                Privacy Policy
+              </Link>
+            </label>
+          </div>
+          {errors.terms && (
+            <p className="text-xs text-error mt-1">{errors.terms}</p>
+          )} */}
+
           <button
             type="submit"
             disabled={loading}
-            className="btn-primary w-full flex items-center justify-center gap-2"
+            className="btn-primary w-full flex items-center justify-center gap-2 py-2.5 text-base font-semibold"
           >
             {loading ? (
-              <div className="spinner"></div>
+              <>
+                <div className="spinner h-5 w-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                Creating account...
+              </>
             ) : (
-              <UserPlus className="h-5 w-5" />
+              <>
+                <UserPlus className="h-5 w-5" />
+                Create Account
+              </>
             )}
-            {loading ? 'Creating account...' : 'Create Account'}
           </button>
           
           <div className="text-center">
@@ -532,12 +596,25 @@ export default function RegisterPage() {
             </Link>
           </div>
 
-          {/* Terms */}
-          <p className="text-xs text-center text-muted">
+          {/* <p className="text-center text-xs text-muted">
             By creating an account, you agree to our Terms of Service and Privacy Policy.
-          </p>
+          </p> */}
         </form>
       </div>
+      
+      <style jsx>{`
+        .spinner {
+          width: 1rem;
+          height: 1rem;
+          border: 2px solid rgba(255, 255, 255, 0.3);
+          border-top-color: white;
+          border-radius: 50%;
+          animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 }

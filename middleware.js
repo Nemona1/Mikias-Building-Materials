@@ -8,7 +8,6 @@ const PUBLIC_ROUTES = new Set([
   '/verify/already-verified', '/verify/email-changed',
   '/maintenance', '/products', '/about', '/contact',
   '/quote-request', '/verify-2fa', '/profile',
-  // Add uploads path for images - FIX FOR IMAGES
   '/uploads'
 ]);
 
@@ -25,34 +24,25 @@ const PUBLIC_API_PREFIXES = new Set([
   '/api/auth/verify-email-change-otp', '/api/auth/verify-otp',
   '/api/auth/verify-otp-change-password', '/api/auth/change-password',
   '/api/auth/password-reset',
-  '/api/settings' // Public settings API
+  '/api/settings'
 ]);
 
 // ============================================
-// BUSINESS MANAGEMENT ROUTES - Accessible by staff, manager, admin, super_admin
+// BUSINESS MANAGEMENT ROUTES
 // ============================================
 const BUSINESS_ROUTES = new Set([
-  // Admin paths (for admin and super_admin)
   '/admin/products', '/api/admin/products',
   '/admin/quotes', '/api/admin/quotes',
   '/admin/customers', '/api/admin/customers',
   '/admin/reports', '/api/admin/reports',
-  
-  // Manager paths
-  '/manager/products',
-  '/manager/quotes',
-  '/manager/customers',
-  '/manager/reports',
-  
-  // Staff paths
-  '/staff/products',
-  '/staff/quotes',
-  '/manager/customers', '/manager/customers/*',
-  '/staff/customers', '/staff/customers/*',
+  '/manager/products', '/manager/quotes',
+  '/manager/customers', '/manager/reports',
+  '/staff/products', '/staff/quotes',
+  '/staff/customers'
 ]);
 
 // ============================================
-// ADMIN ONLY ROUTES - Only super_admin and admin
+// ADMIN ONLY ROUTES
 // ============================================
 const ADMIN_ONLY_ROUTES = new Set([
   '/admin/users', '/api/admin/users',
@@ -64,7 +54,7 @@ const ADMIN_ONLY_ROUTES = new Set([
 ]);
 
 // ============================================
-// MANAGER ONLY ROUTES - Only super_admin, admin, manager
+// MANAGER ONLY ROUTES
 // ============================================
 const MANAGER_ROUTES = new Set([
   '/manager/staff', '/api/manager/users',
@@ -257,7 +247,7 @@ export async function middleware(request) {
   }
 
   // ============================================
-  // ADMIN ONLY ROUTES - Only super_admin and admin
+  // ADMIN ONLY ROUTES
   // ============================================
   if (matchesRoute(pathname, ADMIN_ONLY_ROUTES)) {
     if (userRole !== 'admin' && userRole !== 'super_admin') {
@@ -267,7 +257,6 @@ export async function middleware(request) {
       const dashboard = ROLE_DASHBOARDS[userRole] || '/dashboard/customer';
       return NextResponse.redirect(new URL(dashboard, request.url));
     }
-    // Allow access for admin
     if (pathname.startsWith('/api/')) {
       const response = NextResponse.next();
       response.headers.set('x-user-id', decoded?.userId || '');
@@ -279,8 +268,7 @@ export async function middleware(request) {
   }
 
   // ============================================
-  // BUSINESS MANAGEMENT ROUTES - staff, manager, admin, super_admin
-  // Includes both admin paths and role-specific paths
+  // BUSINESS MANAGEMENT ROUTES
   // ============================================
   if (matchesRoute(pathname, BUSINESS_ROUTES)) {
     const hasBusinessAccess = ['staff', 'manager', 'admin', 'super_admin'].includes(userRole);
@@ -293,7 +281,6 @@ export async function middleware(request) {
       return NextResponse.redirect(new URL(dashboard, request.url));
     }
     
-    // Allow access for authorized users
     if (pathname.startsWith('/api/')) {
       const response = NextResponse.next();
       response.headers.set('x-user-id', decoded?.userId || '');
@@ -305,7 +292,7 @@ export async function middleware(request) {
   }
 
   // ============================================
-  // MANAGER ONLY ROUTES - manager, admin, super_admin
+  // MANAGER ONLY ROUTES
   // ============================================
   if (matchesRoute(pathname, MANAGER_ROUTES) || pathname.startsWith('/manager/')) {
     const hasManagerAccess = ['manager', 'admin', 'super_admin'].includes(userRole);
