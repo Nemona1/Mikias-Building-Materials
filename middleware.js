@@ -49,7 +49,7 @@ const ADMIN_ONLY_ROUTES = new Set([
   '/admin/roles', '/api/admin/roles',
   '/admin/permissions', '/api/admin/permissions',
   '/admin/security-logs', '/api/admin/security-logs',
-  '/admin/backup', '/api/admin/backup',
+  // '/admin/backup', '/api/admin/backup',
   '/admin/settings', '/api/admin/settings'
 ]);
 
