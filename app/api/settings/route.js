@@ -1,4 +1,4 @@
-// app/api/settings/route.js - Public settings API
+// app/api/settings/route.js - Public settings API with value cleaning
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
@@ -30,6 +30,28 @@ function cacheSettings(data) {
   });
 }
 
+// Helper function to clean string values (remove quotes)
+function cleanValue(value) {
+  if (typeof value !== 'string') return value;
+  
+  // Remove leading and trailing quotes (both single and double)
+  let cleaned = value.trim();
+  
+  // Remove double quotes
+  if (cleaned.startsWith('"') && cleaned.endsWith('"')) {
+    cleaned = cleaned.slice(1, -1);
+  }
+  // Remove single quotes
+  else if (cleaned.startsWith("'") && cleaned.endsWith("'")) {
+    cleaned = cleaned.slice(1, -1);
+  }
+  
+  // Unescape any escaped quotes inside
+  cleaned = cleaned.replace(/\\"/g, '"').replace(/\\'/g, "'");
+  
+  return cleaned;
+}
+
 // GET - Get public settings (no authentication required)
 export async function GET(request) {
   try {
@@ -39,9 +61,15 @@ export async function GET(request) {
     // Check cache first
     const cachedData = getCachedSettings();
     if (cachedData) {
+      // Clean values in cached data
+      const cleanedData = cachedData.map(setting => ({
+        ...setting,
+        value: cleanValue(setting.value)
+      }));
+      
       // Filter by category if needed
       if (category && category !== 'all') {
-        const filtered = cachedData.filter(s => s.category === category);
+        const filtered = cleanedData.filter(s => s.category === category);
         return NextResponse.json({
           settings: filtered,
           cached: true
@@ -52,7 +80,7 @@ export async function GET(request) {
         });
       }
       return NextResponse.json({
-        settings: cachedData,
+        settings: cleanedData,
         cached: true
       }, {
         headers: {
@@ -82,13 +110,19 @@ export async function GET(request) {
       }
     });
 
-    // Cache the result
-    cacheSettings(settings);
+    // Clean values before caching
+    const cleanedSettings = settings.map(setting => ({
+      ...setting,
+      value: cleanValue(setting.value)
+    }));
+
+    // Cache the cleaned result
+    cacheSettings(cleanedSettings);
 
     // Filter by category if needed
-    let result = settings;
+    let result = cleanedSettings;
     if (category && category !== 'all') {
-      result = settings.filter(s => s.category === category);
+      result = cleanedSettings.filter(s => s.category === category);
     }
 
     return NextResponse.json({
