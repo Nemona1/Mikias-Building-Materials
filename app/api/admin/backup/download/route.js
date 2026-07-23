@@ -1,4 +1,4 @@
-// app/api/admin/backup/download/route.js - Complete fixed version
+// app/api/admin/backup/download/route.js - Complete fixed version for Vercel
 import { NextResponse } from 'next/server';
 import { verifyAccessToken } from '@/lib/auth/jwt';
 import { hasAdminAccess } from '@/lib/auth/permissions';
@@ -7,8 +7,17 @@ import fs from 'fs';
 import path from 'path';
 
 const BACKUP_DIR = path.join(process.cwd(), 'backups');
+const isBuildTime = process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE === 'phase-production-build';
 
 export async function GET(request) {
+  // Prevent download during build time
+  if (isBuildTime) {
+    return NextResponse.json({ 
+      success: false, 
+      message: 'Download not available during build' 
+    }, { status: 503 });
+  }
+
   try {
     const { searchParams } = new URL(request.url);
     const fileName = searchParams.get('fileName');
@@ -84,6 +93,7 @@ export async function GET(request) {
   } catch (error) {
     console.error('Download backup error:', error);
     
+    // Try to log the error
     try {
       const token = request.headers.get('authorization')?.replace('Bearer ', '');
       if (token) {

@@ -1,6 +1,6 @@
-// app/api/admin/backup/route.js - Fixed EISDIR error
+// app/api/admin/backup/route.js - Complete fixed version for Vercel deployment
 import { NextResponse } from 'next/server';
-import { prisma } from '@/lib/prisma';
+import { getPrisma } from '@/lib/prisma';
 import { verifyAccessToken } from '@/lib/auth/jwt';
 import { hasAdminAccess } from '@/lib/auth/permissions';
 import { logSecurityEvent, SecurityActions } from '@/lib/security-log';
@@ -8,8 +8,20 @@ import fs from 'fs';
 import path from 'path';
 
 const BACKUP_DIR = path.join(process.cwd(), 'backups');
-if (!fs.existsSync(BACKUP_DIR)) {
-  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+
+// Check if running during build time
+const isBuildTime = process.env.NODE_ENV === 'production' && process.env.NEXT_PHASE === 'phase-production-build';
+
+// Only create backup directory if not in Vercel build
+if (!isBuildTime && typeof window === 'undefined') {
+  try {
+    if (!fs.existsSync(BACKUP_DIR)) {
+      fs.mkdirSync(BACKUP_DIR, { recursive: true });
+      console.log('[Backup] Directory created:', BACKUP_DIR);
+    }
+  } catch (e) {
+    console.log('[Backup] Could not create backup directory:', e.message);
+  }
 }
 
 // Store active restore operations - export for status route
@@ -46,6 +58,14 @@ const TABLE_ORDER = [
 ];
 
 export async function GET(request) {
+  // Prevent backup during build time
+  if (isBuildTime) {
+    return NextResponse.json({ 
+      success: false, 
+      message: 'Backup not available during build' 
+    }, { status: 503 });
+  }
+
   try {
     const { searchParams } = new URL(request.url);
     const type = searchParams.get('type') || 'full';
@@ -88,9 +108,10 @@ export async function GET(request) {
     const backupFileName = `backup_${type}_${timestamp}`;
     
     let backupData = {};
+    const prisma = getPrisma();
     
     if (type === 'full' || type === 'database') {
-      backupData.database = await createDatabaseBackup();
+      backupData.database = await createDatabaseBackup(prisma);
     }
     
     if (type === 'full' || type === 'config') {
@@ -144,6 +165,14 @@ export async function GET(request) {
 }
 
 export async function POST(request) {
+  // Prevent restore during build time
+  if (isBuildTime) {
+    return NextResponse.json({ 
+      success: false, 
+      message: 'Restore not available during build' 
+    }, { status: 503 });
+  }
+
   try {
     const { action, fileName } = await request.json();
     
@@ -168,6 +197,7 @@ export async function POST(request) {
     
     const ipAddress = request.headers.get('x-forwarded-for') || 'unknown';
     const userAgent = request.headers.get('user-agent') || 'unknown';
+    const prisma = getPrisma();
     
     if (action === 'restore' && fileName) {
       const backupFilePath = path.join(BACKUP_DIR, fileName);
@@ -191,7 +221,8 @@ export async function POST(request) {
         userId: decoded.userId
       });
       
-      performAsyncRestore(restoreId, backupFilePath, decoded.userId, adminUser, ipAddress, userAgent);
+      // Start async restore
+      performAsyncRestore(restoreId, backupFilePath, decoded.userId, adminUser, ipAddress, userAgent, prisma);
       
       return NextResponse.json({
         success: true,
@@ -235,14 +266,14 @@ export async function POST(request) {
   }
 }
 
-async function performAsyncRestore(restoreId, backupFilePath, adminUserId, adminUser, ipAddress, userAgent) {
+async function performAsyncRestore(restoreId, backupFilePath, adminUserId, adminUser, ipAddress, userAgent, prisma) {
   try {
     console.log(`[RESTORE] Starting async restore for ${restoreId}`);
     
     const backupData = JSON.parse(fs.readFileSync(backupFilePath, 'utf8'));
     
     if (backupData.database) {
-      await restoreDatabase(backupData.database, adminUser);
+      await restoreDatabase(backupData.database, adminUser, prisma);
     }
     
     activeRestores.set(restoreId, {
@@ -292,7 +323,7 @@ async function performAsyncRestore(restoreId, backupFilePath, adminUserId, admin
   }
 }
 
-async function restoreDatabase(databaseBackup, adminUser) {
+async function restoreDatabase(databaseBackup, adminUser, prisma) {
   if (!databaseBackup) return;
   
   console.log('[RESTORE] Starting database restore...');
@@ -310,7 +341,7 @@ async function restoreDatabase(databaseBackup, adminUser) {
               console.log(`[RESTORE] Preserved admin user: ${adminUser.email}`);
               
               for (const record of nonAdminData) {
-                await insertRecord(tableName, record);
+                await insertRecord(tableName, record, prisma);
               }
               console.log(`[RESTORE] Restored ${nonAdminData.length} non-admin records to users`);
             } else {
@@ -321,7 +352,7 @@ async function restoreDatabase(databaseBackup, adminUser) {
             console.log(`[RESTORE] Truncated table: ${tableName}`);
             
             for (const record of tableData) {
-              await insertRecord(tableName, record);
+              await insertRecord(tableName, record, prisma);
             }
             console.log(`[RESTORE] Restored ${tableData.length} records to ${tableName}`);
           }
@@ -343,7 +374,7 @@ async function restoreDatabase(databaseBackup, adminUser) {
   }
 }
 
-async function insertRecord(tableName, record) {
+async function insertRecord(tableName, record, prisma) {
   try {
     const columns = Object.keys(record).map(col => `"${col}"`).join(', ');
     const values = Object.values(record).map(v => {
@@ -373,7 +404,7 @@ async function insertRecord(tableName, record) {
 // ============================================
 // CORRECT DATABASE BACKUP - ALL TABLES IN YOUR SCHEMA
 // ============================================
-async function createDatabaseBackup() {
+async function createDatabaseBackup(prisma) {
   const tables = [
     'permissions',
     'roles',
@@ -426,9 +457,6 @@ async function createConfigBackup() {
   return backup;
 }
 
-/**
- * Create uploads backup - Fixed to handle directories properly
- */
 async function createUploadsBackup() {
   const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
   const backup = { files: [], directories: [] };
@@ -438,7 +466,6 @@ async function createUploadsBackup() {
     return backup;
   }
 
-  // Recursively get all files from uploads directory
   function getAllFiles(dir, basePath = '') {
     const entries = fs.readdirSync(dir, { withFileTypes: true });
     const files = [];
@@ -448,7 +475,6 @@ async function createUploadsBackup() {
       const relativePath = basePath ? `${basePath}/${entry.name}` : entry.name;
       
       if (entry.isDirectory()) {
-        // Recursively get files from subdirectory
         const subFiles = getAllFiles(fullPath, relativePath);
         files.push(...subFiles);
         backup.directories.push(relativePath);

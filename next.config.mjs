@@ -1,4 +1,4 @@
-// next.config.mjs - Remove onError
+// next.config.mjs - Updated for Vercel
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
@@ -28,13 +28,16 @@ const nextConfig = {
   
   poweredByHeader: false,
   
-  serverExternalPackages: ['fs', 'path', 'child_process'],
+  // Server external packages for Node.js APIs
+  serverExternalPackages: ['fs', 'path', 'child_process', 'pg', '@prisma/client', '@prisma/adapter-pg'],
   
   webpack: (config, { isServer }) => {
     if (isServer) {
+      // Ignore warnings for backup route
       config.ignoreWarnings = [
         { module: /backup/ },
         { message: /Critical dependency/ },
+        { message: /fs/ },
       ];
     }
     return config;
